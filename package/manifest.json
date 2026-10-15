@@ -1,0 +1,9 @@
+{
+    "name": "Everlit",
+    "version_number": "1.0.0",
+    "website_url": "https://github.com/cocopuff2u-gaming/everlit",
+    "description": "Fires and torches players build never run out of fuel. The world's own fire pits stay as they are. Server only.",
+    "dependencies": [
+        "denikson-BepInExPack_Valheim-5.4.2350"
+    ]
+}

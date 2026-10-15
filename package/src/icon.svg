@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <radialGradient id="sea" cx="45%" cy="38%" r="70%"><stop offset="0" stop-color="#2f6f9c"/><stop offset="1" stop-color="#14324f"/></radialGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#ffb347" stop-opacity=".55"/><stop offset="1" stop-color="#ffb347" stop-opacity="0"/></radialGradient>
+    <linearGradient id="flame" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#ff7a1a"/><stop offset=".6" stop-color="#ffb02e"/><stop offset="1" stop-color="#ffe27a"/></linearGradient>
+    <clipPath id="c"><circle cx="128" cy="134" r="94"/></clipPath>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="#141a24"/>
+  <circle cx="128" cy="134" r="94" fill="url(#sea)"/>
+  <g clip-path="url(#c)">
+    <path d="M40 196c10-30 30-52 62-58 26-5 40 10 64 6 26-4 46 8 54 30 6 18 2 40-10 56H40z" fill="#d8c48a"/>
+    <path d="M50 200c10-24 28-42 54-48 24-5 38 9 60 5 22-4 40 6 46 24 5 14 2 30-6 42H50z" fill="#5f8a45"/>
+    <path d="M150 186c14 8 30 10 44 4" fill="none" stroke="#7fb0d4" stroke-width="5" stroke-linecap="round"/>
+    <circle cx="128" cy="96" r="70" fill="url(#glow)"/>
+  </g>
+  <circle cx="128" cy="134" r="94" fill="none" stroke="#6fb7ff" stroke-width="3" opacity=".6"/>
+  <!-- flame rising out of the ring -->
+  <path d="M128 18 C 140 44, 168 58, 166 92 C 164 118, 148 130, 128 130 C 108 130, 90 118, 90 92 C 90 74, 102 64, 106 50 C 112 64, 116 70, 120 72 C 118 52, 120 34, 128 18 Z" fill="url(#flame)"/>
+  <path d="M128 66 C 134 80, 146 88, 144 104 C 142 118, 136 124, 128 124 C 120 124, 112 118, 112 106 C 112 94, 122 86, 128 66 Z" fill="#fff1b8"/>
+  <!-- iron brazier bowl and stand -->
+  <g fill="#07090d">
+    <path d="M78 122 L178 122 C 174 146, 156 160, 128 160 C 100 160, 82 146, 78 122 Z"/>
+    <path d="M72 116 L184 116 L184 126 L72 126 Z"/>
+    <path d="M120 158 L136 158 L136 200 L120 200 Z"/>
+    <path d="M96 198 L160 198 L168 212 L88 212 Z"/>
+  </g>
+  <path d="M90 132 L166 132" stroke="#3a4656" stroke-width="3" opacity=".9"/>
+  <!-- the never-out mark -->
+  <circle cx="190" cy="190" r="34" fill="#141a24"/>
+  <circle cx="190" cy="190" r="28" fill="#e8892a"/>
+  <path d="M190 190 C 184 180, 170 180, 170 190 C 170 200, 184 200, 190 190 C 196 180, 210 180, 210 190 C 210 200, 196 200, 190 190 Z" fill="none" stroke="#fff6e6" stroke-width="5.5" stroke-linejoin="round"/>
+</svg>

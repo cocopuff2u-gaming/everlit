@@ -1,0 +1,7 @@
+[Bb]in/
+[Oo]bj/
+dist/
+libs/
+*.user
+.vs/
+.idea/
