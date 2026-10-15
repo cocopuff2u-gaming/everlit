@@ -44,7 +44,7 @@ namespace Everlit
             cfg.SaveOnConfigSet = false;
             double clockWas = ZNet.instance.GetTimeSeconds();
             Vector3 refWas = ZNet.instance.GetReferencePosition();
-            var was = (Plugin.Enabled.Value, Plugin.PlayerBuiltOnly.Value, Plugin.ExcludeFires.Value, Plugin.Torches.Value);
+            var was = (Plugin.Enabled.Value, Plugin.PlayerBuiltOnly.Value, Plugin.ExcludeFires.Value, Plugin.Torches.Value, Plugin.Furnaces.Value);
 
             IEnumerator inner = Body();
             while (true)
@@ -59,7 +59,7 @@ namespace Everlit
             spot = null;
             ZNet.instance.SetReferencePosition(refWas);
             ZNet.instance.SetNetTime(clockWas);
-            (Plugin.Enabled.Value, Plugin.PlayerBuiltOnly.Value, Plugin.ExcludeFires.Value, Plugin.Torches.Value) = was;
+            (Plugin.Enabled.Value, Plugin.PlayerBuiltOnly.Value, Plugin.ExcludeFires.Value, Plugin.Torches.Value, Plugin.Furnaces.Value) = was;
             Keeper.SettingsChanged();
             cfg.SaveOnConfigSet = save;
             foreach (var z in made)
@@ -127,7 +127,43 @@ namespace Everlit
                 $"fuel {before} -> {torch.GetFloat(ZDOVars.s_fuel)}, burning {ft && ft.IsBurning()}");
             Check("world fire pit burned out as normal", camp.IsValid() && camp.GetFloat(ZDOVars.s_fuel) == 0f && fc && !fc.IsBurning(), $"valid {camp.IsValid()}, fuel {camp.GetFloat(ZDOVars.s_fuel)}");
 
-            // 5. settings: a fire type switched off is put back; ExcludeFires; Enabled off puts everything back
+            // 5. furnaces: left alone while Furnaces is off; on, a built smelter smelts with no coal and
+            // isn't handed any (torn down, it would drop it)
+            Plugin.Furnaces.Value = false; Keeper.SettingsChanged();
+            yield return Round();
+            var smelter = Make("smelter", at + new Vector3(16f, 0f, 0f), built: true);
+            smelter.Set(ZDOVars.s_fuel, 2f);
+            Arrive(smelter, Package(smelter));
+            yield return new WaitForSeconds(0.5f);
+            Check("Furnaces off (default): built smelter left alone", !Keeper.IsLit(smelter), Fields(smelter));
+            Plugin.Furnaces.Value = true; Keeper.SettingsChanged();
+            yield return Round();
+            Check("Furnaces on: built smelter switched, its coal left as it was", Keeper.IsLit(smelter) && smelter.GetInt("Smelter.m_maxFuel", -1) == 0
+                && smelter.GetFloat(ZDOVars.s_fuel) == 2f, $"{Fields(smelter)}, maxFuel {smelter.GetInt("Smelter.m_maxFuel", -1)}, coal {smelter.GetFloat(ZDOVars.s_fuel)}");
+            Check("fires stay lit alongside", Keeper.IsLit(torch) && Keeper.IsLit(hearth), "");
+            var smelterAt = near + new Vector3(0f, 0f, 6f);
+            smelterAt.y = ZoneSystem.instance.GetGroundHeight(smelterAt);
+            smelter.Set(ZDOVars.s_fuel, 0f);
+            smelter.SetPosition(smelterAt);
+            Smelter fs = null;
+            for (int i = 0; i < 30 && (fs = LiveSmelter(smelter)) == null; i++) yield return new WaitForSeconds(0.5f);
+            Check("smelter loaded in the server's game, needing no coal", fs != null && fs.m_maxFuel == 0, fs == null ? "not loaded" : $"maxFuel {fs.m_maxFuel}");
+            if (fs != null)
+            {
+                yield return new WaitForSeconds(2f);
+                fs.QueueOre("CopperOre", false);
+                fs.QueueOre("CopperOre", false);
+                ZNet.instance.SetNetTime(ZNet.instance.GetTimeSeconds() + fs.m_secPerProduct + 5f);
+                yield return new WaitForSeconds(3f);
+                Check("smelter smelted ore with no coal in it", fs && fs.GetQueueSize() == 1 && smelter.GetFloat(ZDOVars.s_fuel) == 0f,
+                    $"ore left {(fs ? fs.GetQueueSize() : -1)}, coal {smelter.GetFloat(ZDOVars.s_fuel)}");
+                // a bar it may have dropped
+                foreach (var d in ItemDrop.s_instances.ToArray())
+                    if (d && d.name.StartsWith("Copper") && Vector3.Distance(d.transform.position, smelterAt) < 6f && d.m_nview && d.m_nview.IsValid())
+                        ZNetScene.instance.Destroy(d.gameObject);
+            }
+
+            // 6. settings: a fire type switched off is put back; ExcludeFires; Enabled off puts everything back
             Plugin.Torches.Value = false; Keeper.SettingsChanged();
             yield return Round();
             Check("Torches off: torches put back, hearth stays lit", !Keeper.IsLit(fresh) && !fresh.GetBool("Fireplace.m_infiniteFuel") && Keeper.IsLit(hearth), Fields(fresh));
@@ -142,8 +178,10 @@ namespace Everlit
             bool allBack = true;
             foreach (var z in made) allBack &= !Keeper.IsLit(z) && !z.GetBool("Fireplace.m_infiniteFuel");
             Check("Enabled off: every fire put back to normal", allBack, $"{Fields(torch)} / {Fields(camp)}");
+            int smelterMax = ZNetScene.instance.GetPrefab("smelter").GetComponent<Smelter>().m_maxFuel;
+            Check("Enabled off: smelter needs coal again", smelter.GetInt("Smelter.m_maxFuel", -1) == smelterMax, $"maxFuel {smelter.GetInt("Smelter.m_maxFuel", -1)}, prefab {smelterMax}");
 
-            // 6. reloaded after being put back, the game burns it normally again
+            // 7. reloaded after being put back, the game burns it normally again
             torch.SetPosition(at);
             yield return new WaitForSeconds(3f);
             torch.SetPosition(near + new Vector3(-4f, 0f, 0f));
@@ -186,6 +224,12 @@ namespace Everlit
         {
             var v = ZNetScene.instance.FindInstance(z);
             return v ? v.GetComponent<Fireplace>() : null;
+        }
+
+        private static Smelter LiveSmelter(ZDO z)
+        {
+            var v = ZNetScene.instance.FindInstance(z);
+            return v ? v.GetComponent<Smelter>() : null;
         }
 
         private static ZPackage Package(ZDO zdo)

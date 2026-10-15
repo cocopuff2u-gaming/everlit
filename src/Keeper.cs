@@ -16,20 +16,26 @@ namespace Everlit
     // A fire is written to once, when it's lit (or put back), and never again after that.
     // A fire a player already has loaded switches when it next loads for them; until then it gets a
     // full load of fuel so it doesn't go out in the meantime.
+    // Furnaces (off by default) get the same treatment through the smelter's own "max fuel": at 0 the
+    // game runs it without fuel, as it does the spinning wheel. They get no fuel top-up: a furnace
+    // drops the coal in it when it's torn down, so a top-up would be free coal.
     internal static class Keeper
     {
-        private enum Kind { Campfire, Bonfire, Hearth, Torch, Brazier, Candle, Other }
+        private enum Kind { Campfire, Bonfire, Hearth, Torch, Brazier, Candle, Furnace, Other }
 
         private sealed class FireType
         {
             public string Name;
             public Kind Kind;
             public float MaxFuel;
+            public bool Furnace;
         }
 
         private static readonly int HasFields = "HasFields".GetStableHashCode();
         private static readonly int HasFieldsFireplace = ("HasFields" + nameof(Fireplace)).GetStableHashCode();
         private static readonly int InfiniteFuel = (nameof(Fireplace) + "." + nameof(Fireplace.m_infiniteFuel)).GetStableHashCode();
+        private static readonly int HasFieldsSmelter = ("HasFields" + nameof(Smelter)).GetStableHashCode();
+        private static readonly int SmelterMaxFuel = (nameof(Smelter) + "." + nameof(Smelter.m_maxFuel)).GetStableHashCode();
         private static readonly int Mark = "everlit".GetStableHashCode();   // fires Everlit lit, so it can put them back
         private const int ROUND_BUDGET = 2000;          // objects looked at per frame, at most
         private const double ROUND_MS = 1.0;            // and no more than this much time in a frame
@@ -105,12 +111,21 @@ namespace Everlit
             types = new Dictionary<int, FireType>();
             foreach (var go in ZNetScene.instance.m_prefabs)
             {
-                var f = go ? go.GetComponent<Fireplace>() : null;
+                if (!go) continue;
+                var s = go.GetComponent<Smelter>();
+                if (s != null)
+                {
+                    // furnaces that burn coal; not the eitr refinery (sap) or ones that need nothing
+                    if (s.m_maxFuel > 0 && s.m_fuelItem != null && s.m_fuelItem.gameObject.name == "Coal")
+                        types[go.name.GetStableHashCode()] = new FireType { Name = go.name, Kind = Kind.Furnace, MaxFuel = s.m_maxFuel, Furnace = true };
+                    continue;
+                }
+                var f = go.GetComponent<Fireplace>();
                 // already infinite (traders' fire pits) or doesn't burn anything: nothing to do
                 if (f == null || f.m_infiniteFuel || f.m_secPerFuel <= 0f || f.m_fuelItem == null) continue;
                 types[go.name.GetStableHashCode()] = new FireType { Name = go.name, Kind = KindOf(go.name), MaxFuel = f.m_maxFuel };
             }
-            ZLog.Log($"Everlit: {types.Count} kinds of fire: " + string.Join(", ", types.Values.OrderBy(t => t.Kind).Select(t => $"{t.Name} ({t.Kind})")));
+            ZLog.Log($"Everlit: {types.Count} kinds of fire and furnace: " + string.Join(", ", types.Values.OrderBy(t => t.Kind).Select(t => $"{t.Name} ({t.Kind})")));
             var sw = System.Diagnostics.Stopwatch.StartNew();
             Warm();
             ZLog.Log($"Everlit: ready in {sw.Elapsed.TotalMilliseconds:F1} ms; the world walk starts in a minute");
@@ -147,13 +162,14 @@ namespace Everlit
                     case Kind.Torch: on = Plugin.Torches.Value; break;
                     case Kind.Brazier: on = Plugin.Braziers.Value; break;
                     case Kind.Candle: on = Plugin.Candles.Value; break;
+                    case Kind.Furnace: on = Plugin.Furnaces.Value; break;
                     default: on = Plugin.OtherFires.Value; break;
                 }
                 if (on) wanted.Add(kv.Key);
             }
         }
 
-        public static bool IsLit(ZDO zdo) => zdo.GetInt(Mark) == 1 && zdo.GetBool(InfiniteFuel);
+        public static bool IsLit(ZDO zdo) => zdo.GetInt(Mark) == 1 && (zdo.GetBool(InfiniteFuel) || zdo.GetInt(SmelterMaxFuel, -1) == 0);
 
         // returns true when it changed the fire
         private static bool Look(ZDO zdo, bool live)
@@ -166,12 +182,20 @@ namespace Everlit
             if (want && !IsLit(zdo))
             {
                 zdo.Set(HasFields, true);
-                zdo.Set(HasFieldsFireplace, true);
-                zdo.Set(InfiniteFuel, true);
                 zdo.Set(Mark, 1);
-                // the player's game that runs this fire right now only picks the switch up when it next
-                // loads it; a full load keeps it burning until then
-                zdo.Set(ZDOVars.s_fuel, type.MaxFuel);
+                if (type.Furnace)
+                {
+                    zdo.Set(HasFieldsSmelter, true);
+                    zdo.Set(SmelterMaxFuel, 0);
+                }
+                else
+                {
+                    zdo.Set(HasFieldsFireplace, true);
+                    zdo.Set(InfiniteFuel, true);
+                    // the player's game that runs this fire right now only picks the switch up when it
+                    // next loads it; a full load keeps it burning until then
+                    zdo.Set(ZDOVars.s_fuel, type.MaxFuel);
+                }
                 Win(zdo);
                 rLit++;
                 rKinds[type.Kind] = rKinds.TryGetValue(type.Kind, out var k) ? k + 1 : 1;
@@ -180,7 +204,9 @@ namespace Everlit
             }
             if (!want && marked)
             {
-                zdo.Set(InfiniteFuel, false);
+                // set back rather than removed: a player's copy keeps a value it isn't sent again
+                if (type.Furnace) zdo.Set(SmelterMaxFuel, (int)type.MaxFuel);
+                else zdo.Set(InfiniteFuel, false);
                 zdo.RemoveInt(Mark);
                 Win(zdo);
                 rUnlit++;

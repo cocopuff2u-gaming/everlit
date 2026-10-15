@@ -15,7 +15,7 @@ namespace Everlit
 
         internal static ConfigEntry<bool> Enabled;
         internal static ConfigEntry<bool> PlayerBuiltOnly;
-        internal static ConfigEntry<bool> Campfires, Bonfires, Hearths, Torches, Braziers, Candles, OtherFires;
+        internal static ConfigEntry<bool> Campfires, Bonfires, Hearths, Torches, Braziers, Candles, OtherFires, Furnaces;
         internal static ConfigEntry<string> ExcludeFires;
         internal static ConfigEntry<bool> LogEachFire;
         private FileSystemWatcher watcher;
@@ -35,6 +35,8 @@ namespace Everlit
             Braziers = Config.Bind("Fires", "Braziers", true, "Standing and hanging braziers");
             Candles = Config.Bind("Fires", "Candles", true, "Resin candles");
             OtherFires = Config.Bind("Fires", "OtherFires", true, "Any other fire that burns fuel, including ones added by other mods");
+            Furnaces = Config.Bind("Fires", "Furnaces", false,
+                "Smelters and blast furnaces (and any modded furnace that burns coal) smelt without coal. Coal already in one stays there, and can't be added while this is on");
             ExcludeFires = Config.Bind("Fires", "ExcludeFires", "",
                 "Fires to leave alone, by prefab name, comma separated (e.g. \"piece_walltorch, bonfire\"). Wins over the switches above");
             LogEachFire = Config.Bind("Log", "LogEachFire", false, "A log line for every fire lit or put back to normal: what it is and where");

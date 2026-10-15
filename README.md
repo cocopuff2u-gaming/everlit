@@ -21,6 +21,7 @@ Your players don't install anything. It runs only on the server.
 | **Fires that stay lit** | Every fire a player built burns forever, without using fuel. Nobody has to refill a torch again. |
 | **Only player-built fires** | The world's own fire pits, at abandoned camps and villages, stay dark the way the game made them. Switch `PlayerBuiltOnly` off if you want those lit too. |
 | **Pick which fires** | Switches for campfires, bonfires, hearths, torches, braziers and candles, and a list for single fire types to leave alone. |
+| **Furnaces, if you want** | Off by default. Switch `Furnaces` on and smelters and blast furnaces smelt without coal, using the game's own "needs no fuel" setting that the spinning wheel and windmill run on. |
 | **New fires too** | A fire is switched over as soon as it's built. |
 | **The game's own feature** | Valheim already has fires that never run out (the traders' fire pits). Everlit switches that same feature on for your players' fires, using a per-object setting every player's game applies by itself. Nothing is faked, and no fuel is added over and over. |
 | **Easy to undo** | Turn `Enabled` off and every fire Everlit lit goes back to burning fuel. |
@@ -81,7 +82,8 @@ you save, and says `Settings reloaded` in the log.
 | `Braziers` | `true` | | Standing and hanging braziers. |
 | `Candles` | `true` | | Resin candles. |
 | `OtherFires` | `true` | | Any other fire that burns fuel, including ones added by other mods. |
-| `ExcludeFires` | (empty) | | Fire types to leave alone, by prefab name, comma separated, e.g. `piece_walltorch, bonfire`. Wins over the switches. |
+| `Furnaces` | `false` | furnaces burn coal | Smelters and blast furnaces (and modded furnaces that burn coal) smelt without coal. Coal already in one stays there; no more can be added while it's on. |
+| `ExcludeFires` | (empty) | | Fire types to leave alone, by prefab name, comma separated, e.g. `piece_walltorch, bonfire` (furnaces: `smelter`, `blastfurnace`). Wins over the switches. |
 | `LogEachFire` | `false` | | A log line for every fire lit or put back: what it is and where. |
 
 A blank means the game has nothing like it.
