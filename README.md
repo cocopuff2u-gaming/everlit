@@ -92,11 +92,11 @@ you save, and says `Settings reloaded` in the log.
 | `Ovens` | `true` | ovens burn wood | Stone ovens never run out of wood. An empty one is given just under one piece, so it can cook; tearing it down drops none. |
 | `EitrRefinery` | `true` | the refinery burns sap | The eitr refinery refines without sap. Sap already in one stays there; no more can be added while it's on. |
 | `Furnaces` | `false` | furnaces burn coal | Smelters and blast furnaces (and modded furnaces that burn coal) smelt without coal. Coal already in one stays there; no more can be added while it's on. |
-| `FrostKiln` | `false` | the kiln turns ice into frozen fuel | The frost kiln runs without ice. It takes nothing else in, so it makes frozen fuel out of nothing: a piece every 30 seconds, dropped on the ground, while a player is near it. |
+| `FrostKiln` | `false` | the kiln turns ice into frozen fuel | The frost kiln runs without ice. It takes nothing else in, so it makes frozen fuel out of nothing: a piece every 30 seconds, dropped on the ground, while a player is near it, and up to an hour's worth (120 pieces) at once when someone comes back. |
 | `FrostFoundry` | `false` | the foundry burns frozen fuel | The frost foundry never runs out of frozen fuel. An empty one is given just under one piece; tearing it down drops none. |
 | `ShieldGenerators` | `false` | a hit uses up fuel | Shield generators use up no fuel when their shield is hit, so it never breaks. It still needs fuel put in once to come on, and its size still goes by how much is in it. |
-| `NoSmokeChoke` | `false` | fires go out when smoke can't get away | Lit fires don't go out under a roof with nowhere for the smoke to go. The smoke still fills the room and still hurts. |
-| `PlayersCanTurnOff` | `false` | | Players can turn lit fires off and on by using them. The game's own rule for such fires: rain or water turns one off, and it stays off until someone lights it again. Switching this off lights any fire left turned off. |
+| `NoSmokeChoke` | `false` | fires go out when smoke can't get away | Lit fires don't go out under a roof with nowhere for the smoke to go, with something solid right above them, or partly buried. The smoke still fills the room and still hurts. |
+| `PlayersCanTurnOff` | `false` | | Players can turn lit fires off and on by using them (there's no on-screen prompt: the game shows none on a fire that never runs out). The game's own rule for such fires: rain, or strong wind with little cover, turns one off, and it stays off until someone lights it again. Switching this off lights any fire left turned off. |
 | `ExcludeFires` | (empty) | | Fire types to leave alone, by prefab name, comma separated, e.g. `piece_walltorch, bonfire` (hot tub: `piece_bathtub`, oven: `piece_oven`, eitr refinery: `eitrrefinery`, furnaces: `smelter`, `blastfurnace`, frost kiln: `piece_FrostKiln`, frost foundry: `piece_FrostFoundry`, shield generator: `piece_shieldgenerator`). Wins over the switches. |
 | `LogEachFire` | `false` | | A log line for every fire lit or put back: what it is and where. |
 
@@ -109,19 +109,24 @@ A blank means the game has nothing like it.
 * **A fire someone is standing next to** switches over the next time it loads for
   them, after they walk away and come back or log in again. Until then Everlit gives
   it a full load of fuel, so it can't go out in the meantime. The log counts these
-  as "still used fuel in a player's game" until they've switched.
+  as "still used fuel in a player's game" until they've switched. Hot tubs, ovens
+  and stations get no fuel top-up (see "No free fuel"), so one loaded for a player
+  right now keeps using fuel until it next loads for them, and can go out if it runs
+  dry before then.
 * **Fires still go out the way the game puts them out:** under water, or choked by
   their own smoke under a roof with nowhere for it to go (unless `NoSmokeChoke` is
   on). Those don't use fuel.
 * **Smoke itself** can't be switched off from the server: it's made only in each
   player's own game.
 * **Adding fuel.** A lit fire won't take wood or resin any more, the same as the
-  traders' fire pits.
+  traders' fire pits, and a switched hot tub, furnace or eitr refinery says it's
+  full. Ovens and the frost foundry still take fuel, though they don't need it.
 * **Hot tubs, ovens and stations** use the same kind of switch as the fires, saved
-  on each one. The hover text still shows the fuel in them (a hot tub reads
-  `Wood 0/0`, a switched smelter `Coal 0/0`).
+  on each one. The hover text still shows the fuel in them over a maximum of 0
+  (a hot tub with three pieces of wood in it reads `Wood 3/0`).
 * **No free fuel.** Nothing is topped up with fuel a player could get back: tearing
-  one down gives back only what players put in.
+  one down gives back only what players put in. The one exception is `FrostKiln`,
+  which makes frozen fuel out of nothing when it's on.
 * **The charcoal kiln, spinning wheel and windmills** need no fuel anyway. Smelters
   and blast furnaces are only touched with `Furnaces` on, the frost kiln and frost
   foundry only with their own switches on.
