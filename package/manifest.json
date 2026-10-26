@@ -1,6 +1,6 @@
 {
     "name": "Everlit",
-    "version_number": "1.1.0",
+    "version_number": "1.1.1",
     "website_url": "https://github.com/cocopuff2u-gaming/everlit",
     "description": "Fires, torches, hot tubs, ovens and the eitr refinery players build never run out of fuel. Optional: furnaces, frost stations, shield generators. Server only.",
     "dependencies": [

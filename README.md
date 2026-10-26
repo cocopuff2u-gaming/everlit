@@ -52,7 +52,7 @@ Most server hosts have a one-click option for BepInEx.
 4. **Start the server.** In the server log you should see:
 
    ```
-   Everlit 1.1.0 loaded
+   Everlit 1.1.1 loaded
    ```
 
    and, a minute after the world loads:

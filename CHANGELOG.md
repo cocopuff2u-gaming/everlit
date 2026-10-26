@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.1
+
+* README and setting descriptions corrected: hover text on switched hot tubs and stations, what `NoSmokeChoke` and `PlayersCanTurnOff` do (rain or strong wind turns such a fire off; there's no on-screen prompt), and how much the frost kiln makes. No change in what the mod does.
+
 ## 1.1.0
 
 * Hot tubs stay hot without wood (`HotTubs`, on). Asked for in [#1](https://github.com/cocopuff2u-gaming/everlit/issues/1).

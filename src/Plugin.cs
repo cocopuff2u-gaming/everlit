@@ -11,7 +11,7 @@ namespace Everlit
     {
         public const string GUID = "com.cocopuff2u.everlit";
         public const string NAME = "Everlit";
-        public const string VERSION = "1.1.0";
+        public const string VERSION = "1.1.1";
 
         internal static ConfigEntry<bool> Enabled;
         internal static ConfigEntry<bool> PlayerBuiltOnly, WardedOnly;
@@ -47,15 +47,15 @@ namespace Everlit
             EitrRefinery = Config.Bind("Fires", "EitrRefinery", true,
                 "The eitr refinery refines without sap. Sap already in one stays there, and can't be added while this is on");
             FrostKiln = Config.Bind("Fires", "FrostKiln", false,
-                "The frost kiln runs without ice. It takes nothing else in, so this makes its goods out of nothing, for as long as a player is near it");
+                "The frost kiln runs without ice. It takes nothing else in, so it makes frozen fuel out of nothing: a piece every 30 s while a player is near it, and up to an hour's worth at once when someone comes back");
             FrostFoundry = Config.Bind("Fires", "FrostFoundry", false,
                 "The frost foundry never runs out of frozen fuel. An empty one is given just under one piece (tearing it down drops none)");
             ShieldGenerators = Config.Bind("Fires", "ShieldGenerators", false,
                 "Shield generators use up no fuel when their shield is hit, so the shield never breaks. It still needs fuel put in once to switch on, and its size still goes by how much is in it");
             NoSmokeChoke = Config.Bind("Lit fires", "NoSmokeChoke", false,
-                "Lit fires don't go out when their smoke can't get away (indoors, under a roof). The smoke still fills the room and still hurts");
+                "Lit fires don't go out when their smoke can't get away (indoors, under a roof), with something solid right above them, or partly buried. The smoke still fills the room and still hurts");
             PlayersCanTurnOff = Config.Bind("Lit fires", "PlayersCanTurnOff", false,
-                "Players can turn lit fires off and on again by using them. The game's own rule for such fires: rain or water turns one off, and it stays off until someone lights it again");
+                "Players can turn lit fires off and on again by using them (no on-screen prompt: the game shows none on a fire that never runs out). The game's own rule for such fires: rain, or strong wind with little cover, turns one off, and it stays off until someone lights it again");
             ExcludeFires = Config.Bind("Fires", "ExcludeFires", "",
                 "Fires to leave alone, by prefab name, comma separated (e.g. \"piece_walltorch, bonfire\"). Wins over the switches above");
             LogEachFire = Config.Bind("Log", "LogEachFire", false, "A log line for every fire lit or put back to normal: what it is and where");
