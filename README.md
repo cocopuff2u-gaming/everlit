@@ -127,7 +127,8 @@ A blank means the game has nothing like it.
 * **No free fuel.** Nothing is topped up with fuel a player could get back: tearing
   one down gives back only what players put in. The one exception is `FrostKiln`,
   which makes frozen fuel out of nothing when it's on.
-* **The charcoal kiln, spinning wheel and windmills** need no fuel anyway. Smelters
+* **The charcoal kiln, spinning wheel and windmills** burn no fuel: the wood, flax
+  or barley put in them is what they turn into coal, linen thread or flour. Smelters
   and blast furnaces are only touched with `Furnaces` on, the frost kiln and frost
   foundry only with their own switches on.
 * **The shield generator** is only touched with `ShieldGenerators` on: without using
