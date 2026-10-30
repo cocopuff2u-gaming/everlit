@@ -45,8 +45,10 @@ namespace Everlit
             cfg.SaveOnConfigSet = false;
             double clockWas = ZNet.instance.GetTimeSeconds();
             Vector3 refWas = ZNet.instance.GetReferencePosition();
-            var was = (Plugin.Enabled.Value, Plugin.PlayerBuiltOnly.Value, Plugin.ExcludeFires.Value, Plugin.Torches.Value, Plugin.Furnaces.Value, Plugin.HotTubs.Value, Plugin.Ovens.Value, Plugin.EitrRefinery.Value, Plugin.FrostKiln.Value, Plugin.FrostFoundry.Value,
-                Plugin.ShieldGenerators.Value, Plugin.NoSmokeChoke.Value, Plugin.PlayersCanTurnOff.Value, Plugin.WardedOnly.Value);
+            var was = (Plugin.Enabled.Value, Plugin.PlayerBuiltOnly.Value, Plugin.ExcludeFires.Value, Plugin.Torches.Value, Plugin.Smelters.Value, Plugin.BlastFurnaces.Value, Plugin.HotTubs.Value, Plugin.Ovens.Value, Plugin.EitrRefinery.Value, Plugin.FrostKiln.Value, Plugin.CharcoalKiln.Value, Plugin.FrostFoundry.Value,
+                Plugin.ShieldGenerators.Value, Plugin.NoSmokeChoke.Value, Plugin.PlayersCanTurnOff.Value, Plugin.WardedOnly.Value, Plugin.HoverInfo.Value, Plugin.HoverNote.Value);
+
+            var capsWere = new[] { Plugin.CharcoalKilnMaxWood, Plugin.FrostKilnMaxIce, Plugin.SmelterMaxOre, Plugin.SmelterMaxCoal, Plugin.BlastFurnaceMaxOre, Plugin.BlastFurnaceMaxCoal }.Select(e => (e, e.Value)).ToArray();
 
             IEnumerator inner = Body();
             while (true)
@@ -61,8 +63,9 @@ namespace Everlit
             spot = null;
             ZNet.instance.SetReferencePosition(refWas);
             ZNet.instance.SetNetTime(clockWas);
-            (Plugin.Enabled.Value, Plugin.PlayerBuiltOnly.Value, Plugin.ExcludeFires.Value, Plugin.Torches.Value, Plugin.Furnaces.Value, Plugin.HotTubs.Value, Plugin.Ovens.Value, Plugin.EitrRefinery.Value, Plugin.FrostKiln.Value, Plugin.FrostFoundry.Value,
-                Plugin.ShieldGenerators.Value, Plugin.NoSmokeChoke.Value, Plugin.PlayersCanTurnOff.Value, Plugin.WardedOnly.Value) = was;
+            (Plugin.Enabled.Value, Plugin.PlayerBuiltOnly.Value, Plugin.ExcludeFires.Value, Plugin.Torches.Value, Plugin.Smelters.Value, Plugin.BlastFurnaces.Value, Plugin.HotTubs.Value, Plugin.Ovens.Value, Plugin.EitrRefinery.Value, Plugin.FrostKiln.Value, Plugin.CharcoalKiln.Value, Plugin.FrostFoundry.Value,
+                Plugin.ShieldGenerators.Value, Plugin.NoSmokeChoke.Value, Plugin.PlayersCanTurnOff.Value, Plugin.WardedOnly.Value, Plugin.HoverInfo.Value, Plugin.HoverNote.Value) = was;
+            foreach (var (e, v) in capsWere) e.Value = v;
             Keeper.SettingsChanged();
             cfg.SaveOnConfigSet = save;
             foreach (var z in made)
@@ -73,9 +76,13 @@ namespace Everlit
         private static IEnumerator Body()
         {
             while (Keeper.RoundRunning) yield return new WaitForSeconds(1f);
+            GameFacts();
             var at = new Vector3(6000f, 30f, -6000f);   // out at sea, nobody near
             const string torchName = "piece_groundtorch_wood";
-            float torchMax = ZNetScene.instance.GetPrefab(torchName).GetComponent<Fireplace>().m_maxFuel;
+            var torchPrefab = ZNetScene.instance.GetPrefab(torchName).GetComponent<Fireplace>();
+            float torchMax = torchPrefab.m_maxFuel, torchSec = torchPrefab.m_secPerFuel;
+            string torchLabel = torchPrefab.m_name;
+            Plugin.HoverInfo.Value = true; Plugin.HoverNote.Value = "(never runs out)";
 
             // 1. a round: a built torch and a built hearth get lit, a world fire pit doesn't
             var torch = Make(torchName, at, built: true);
@@ -120,7 +127,12 @@ namespace Everlit
             for (int i = 0; i < 30 && ((ft = Live(torch)) == null || (fc = Live(camp)) == null); i++) yield return new WaitForSeconds(0.5f);
             Check("both loaded in the server's game", ft != null && fc != null, "");
             if (ft == null || fc == null) yield break;
-            Check("game applied infinite fuel to the built torch", ft.m_infiniteFuel, "");
+            Check("HoverInfo on (default): game runs the built torch on a piece of wood that lasts for good, not infinite fuel", !ft.m_infiniteFuel && ft.m_secPerFuel >= 1e29f,
+                $"infinite {ft.m_infiniteFuel}, secPerFuel {ft.m_secPerFuel}");
+            Check("HoverInfo on: its name carries the note", ft.m_name == torchLabel + " (never runs out)", ft.m_name);
+            string hoverText = "";
+            try { hoverText = ft.GetHoverText(); } catch (System.Exception e) { hoverText = "exception " + e.Message; }
+            Check("HoverInfo on: the game shows hover text, the note and full fuel", hoverText.Contains("(never runs out)") && hoverText.Contains($"{(int)torchMax}/{(int)torchMax}"), hoverText.Replace("\n", " | "));
             Check("game left the world fire pit normal", !fc.m_infiniteFuel, "");
             yield return new WaitForSeconds(2.5f);
             float before = torch.GetFloat(ZDOVars.s_fuel);
@@ -130,19 +142,56 @@ namespace Everlit
                 $"fuel {before} -> {torch.GetFloat(ZDOVars.s_fuel)}, burning {ft && ft.IsBurning()}");
             Check("world fire pit burned out as normal", camp.IsValid() && camp.GetFloat(ZDOVars.s_fuel) == 0f && fc && !fc.IsBurning(), $"valid {camp.IsValid()}, fuel {camp.GetFloat(ZDOVars.s_fuel)}");
 
-            // 5. furnaces: left alone while Furnaces is off; on, a built smelter smelts with no coal and
-            // isn't handed any (torn down, it would drop it)
-            Plugin.Furnaces.Value = false; Keeper.SettingsChanged();
+            // 4b. HoverInfo off: lit fires go back to the game's infinite fuel (no hover text), and their
+            // own name and burn rate; on again, back to the lasting piece of wood and the note
+            Plugin.HoverInfo.Value = false; Keeper.SettingsChanged();
+            yield return Round();
+            Check("HoverInfo off: the torch switched to infinite fuel, its own name and burn rate", Keeper.IsLit(torch) && torch.GetBool("Fireplace.m_infiniteFuel")
+                && torch.GetFloat("Fireplace.m_secPerFuel") == torchSec && torch.GetString("Fireplace.m_name") == torchLabel, Fields(torch));
+            torch.SetPosition(at);
+            yield return new WaitForSeconds(3f);
+            torch.SetPosition(near);
+            for (int i = 0; i < 30 && (ft = Live(torch)) == null; i++) yield return new WaitForSeconds(0.5f);
+            string blank = ft == null ? "not loaded" : ft.GetHoverText();
+            Check("HoverInfo off: loaded again, it runs on infinite fuel and shows no hover text", ft != null && ft.m_infiniteFuel && blank == "" && ft.m_name == torchLabel, $"hover '{blank}'");
+            Plugin.HoverInfo.Value = true; Plugin.HoverNote.Value = "<color=orange>Everlit</color>"; Keeper.SettingsChanged();
+            yield return Round();
+            Check("HoverInfo on again, with another note: switched back", Keeper.IsLit(torch) && !torch.GetBool("Fireplace.m_infiniteFuel") && torch.GetFloat("Fireplace.m_secPerFuel") >= 1e29f
+                && torch.GetString("Fireplace.m_name") == torchLabel + " <color=orange>Everlit</color>", Fields(torch));
+            torch.Set(ZDOVars.s_fuel, 1f);
+            Arrive(torch, Package(torch));
+            yield return new WaitForSeconds(0.5f);
+            Check("HoverInfo on: a lit fire found below full is filled up again", torch.GetFloat(ZDOVars.s_fuel) == torchMax, $"fuel {torch.GetFloat(ZDOVars.s_fuel)}");
+            Plugin.HoverNote.Value = "(never runs out)"; Keeper.SettingsChanged();
+            yield return Round();
+
+            // 5. furnaces: left alone while Smelters and BlastFurnaces are off; Smelters on switches
+            // smelters only, and a built smelter smelts with no coal and isn't handed any (torn down, it
+            // would drop it); BlastFurnaces on switches blast furnaces
+            Plugin.Smelters.Value = false; Plugin.BlastFurnaces.Value = false; Keeper.SettingsChanged();
             yield return Round();
             var smelter = Make("smelter", at + new Vector3(16f, 0f, 0f), built: true);
             smelter.Set(ZDOVars.s_fuel, 2f);
+            var blast = Make("blastfurnace", at + new Vector3(16f, 0f, 4f), built: true);
+            blast.Set(ZDOVars.s_fuel, 3f);
             Arrive(smelter, Package(smelter));
+            Arrive(blast, Package(blast));
             yield return new WaitForSeconds(0.5f);
-            Check("Furnaces off (default): built smelter left alone", !Keeper.IsLit(smelter), Fields(smelter));
-            Plugin.Furnaces.Value = true; Keeper.SettingsChanged();
+            Check("Smelters, BlastFurnaces off (default): built smelter and blast furnace left alone", !Keeper.IsLit(smelter) && !Keeper.IsLit(blast), $"{Fields(smelter)} / {Fields(blast)}");
+            Plugin.Smelters.Value = true; Keeper.SettingsChanged();
             yield return Round();
-            Check("Furnaces on: built smelter switched, its coal left as it was", Keeper.IsLit(smelter) && smelter.GetInt("Smelter.m_maxFuel", -1) == 0
+            Check("Smelters on: built smelter switched, its coal left as it was", Keeper.IsLit(smelter) && smelter.GetInt("Smelter.m_maxFuel", -1) == 0
                 && smelter.GetFloat(ZDOVars.s_fuel) == 2f, $"{Fields(smelter)}, maxFuel {smelter.GetInt("Smelter.m_maxFuel", -1)}, coal {smelter.GetFloat(ZDOVars.s_fuel)}");
+            Check("Smelters on: blast furnace still left alone", !Keeper.IsLit(blast), Fields(blast));
+            int blastMax = ZNetScene.instance.GetPrefab("blastfurnace").GetComponent<Smelter>().m_maxFuel;
+            Plugin.BlastFurnaces.Value = true; Plugin.Smelters.Value = false; Keeper.SettingsChanged();
+            yield return Round();
+            Check("BlastFurnaces on, Smelters off: blast furnace switched, its coal left as it was; smelter put back", Keeper.IsLit(blast) && blast.GetInt("Smelter.m_maxFuel", -1) == 0
+                && blast.GetFloat(ZDOVars.s_fuel) == 3f && !Keeper.IsLit(smelter), $"maxFuel {blast.GetInt("Smelter.m_maxFuel", -1)}, coal {blast.GetFloat(ZDOVars.s_fuel)}; smelter {Fields(smelter)}");
+            Plugin.BlastFurnaces.Value = false; Plugin.Smelters.Value = true; Keeper.SettingsChanged();
+            yield return Round();
+            Check("BlastFurnaces off: blast furnace needs coal again", !Keeper.IsLit(blast) && blast.GetInt("Smelter.m_maxFuel", -1) == blastMax && Keeper.IsLit(smelter),
+                $"maxFuel {blast.GetInt("Smelter.m_maxFuel", -1)}, prefab {blastMax}");
             Check("fires stay lit alongside", Keeper.IsLit(torch) && Keeper.IsLit(hearth), "");
             var smelterAt = near + new Vector3(0f, 0f, 6f);
             smelterAt.y = ZoneSystem.instance.GetGroundHeight(smelterAt);
@@ -150,7 +199,7 @@ namespace Everlit
             smelter.SetPosition(smelterAt);
             Smelter fs = null;
             for (int i = 0; i < 30 && (fs = LiveSmelter(smelter)) == null; i++) yield return new WaitForSeconds(0.5f);
-            Check("smelter loaded in the server's game, needing no coal", fs != null && fs.m_maxFuel == 0, fs == null ? "not loaded" : $"maxFuel {fs.m_maxFuel}");
+            Check("smelter loaded in the server's game, needing no coal", fs != null && fs.m_maxFuel == 0, fs == null ? "not loaded" : $"maxFuel {fs.m_maxFuel}; {Loaded(smelter, "Smelter.m_maxFuel")}");
             if (fs != null)
             {
                 yield return new WaitForSeconds(2f);
@@ -179,7 +228,7 @@ namespace Everlit
             tub.SetPosition(tubAt);
             Smelter fh = null;
             for (int i = 0; i < 30 && (fh = LiveSmelter(tub)) == null; i++) yield return new WaitForSeconds(0.5f);
-            Check("hot tub loaded in the server's game, needing no wood", fh != null && fh.m_maxFuel == 0, fh == null ? "not loaded" : $"maxFuel {fh.m_maxFuel}");
+            Check("hot tub loaded in the server's game, needing no wood", fh != null && fh.m_maxFuel == 0, fh == null ? "not loaded" : $"maxFuel {fh.m_maxFuel}; {Loaded(tub, "Smelter.m_maxFuel")}");
             if (fh != null)
             {
                 yield return new WaitForSeconds(2f);
@@ -213,7 +262,7 @@ namespace Everlit
             oven.SetPosition(ovenAt);
             CookingStation fo = null;
             for (int i = 0; i < 30 && (fo = LiveOven(oven)) == null; i++) yield return new WaitForSeconds(0.5f);
-            Check("oven loaded in the server's game, its wood lasting for good", fo != null && fo.m_secPerFuel == forever, fo == null ? "not loaded" : $"secPerFuel {fo.m_secPerFuel}");
+            Check("oven loaded in the server's game, its wood lasting for good", fo != null && fo.m_secPerFuel == forever, fo == null ? "not loaded" : $"secPerFuel {fo.m_secPerFuel}; {Loaded(oven, "CookingStation.m_secPerFuel")}");
             if (fo != null)
             {
                 yield return new WaitForSeconds(2f);
@@ -283,6 +332,97 @@ namespace Everlit
             Check("FrostKiln, FrostFoundry off again: put back", !Keeper.IsLit(kiln) && kiln.GetInt("Smelter.m_maxFuel", -1) == kilnMax
                 && !Keeper.IsLit(foundry) && foundry.GetInt("CookingStation.m_secPerFuel") == foundrySec, $"kiln {kiln.GetInt("Smelter.m_maxFuel", -1)}, foundry {foundry.GetInt("CookingStation.m_secPerFuel")}");
 
+            // 5d2. charcoal kilns (off by default): on, an empty one is given one piece of wood, and again
+            // each time it runs dry (seen when the player's game running it sends it on)
+            var charcoal = Make("charcoal_kiln", at + new Vector3(48f, 0f, 0f), built: true);
+            var full = Make("charcoal_kiln", at + new Vector3(52f, 0f, 0f), built: true);
+            full.Set(ZDOVars.s_item0, "RoundLog"); full.Set(ZDOVars.s_queued, 1);
+            Arrive(charcoal, Package(charcoal));
+            Arrive(full, Package(full));
+            yield return new WaitForSeconds(0.5f);
+            Check("CharcoalKiln off (default): built charcoal kiln left alone", !Keeper.IsLit(charcoal) && charcoal.GetInt(ZDOVars.s_queued) == 0, $"queued {charcoal.GetInt(ZDOVars.s_queued)}");
+            Plugin.CharcoalKiln.Value = true; Keeper.SettingsChanged();
+            yield return Round();
+            Check("CharcoalKiln on: empty kiln given one piece of wood", Keeper.IsLit(charcoal) && charcoal.GetInt(ZDOVars.s_queued) == 1 && charcoal.GetString(ZDOVars.s_item0) == "Wood",
+                $"queued {charcoal.GetInt(ZDOVars.s_queued)}, item0 {charcoal.GetString(ZDOVars.s_item0)}");
+            Check("CharcoalKiln on: a kiln with wood in it gets nothing more", Keeper.IsLit(full) && full.GetInt(ZDOVars.s_queued) == 1 && full.GetString(ZDOVars.s_item0) == "RoundLog",
+                $"queued {full.GetInt(ZDOVars.s_queued)}, item0 {full.GetString(ZDOVars.s_item0)}");
+            var charAt = near + new Vector3(10f, 0f, 6f);
+            charAt.y = ZoneSystem.instance.GetGroundHeight(charAt);
+            charcoal.SetPosition(charAt);
+            Smelter fk = null;
+            for (int i = 0; i < 30 && (fk = LiveSmelter(charcoal)) == null; i++) yield return new WaitForSeconds(0.5f);
+            Check("charcoal kiln loaded in the server's game", fk != null, "");
+            if (fk != null)
+            {
+                yield return new WaitForSeconds(2f);
+                int coalBefore = 0, coalAfter = 0;
+                foreach (var d in ItemDrop.s_instances) if (d && d.name.StartsWith("Coal") && Vector3.Distance(d.transform.position, charAt) < 6f) coalBefore++;
+                ZNet.instance.SetNetTime(ZNet.instance.GetTimeSeconds() + fk.m_secPerProduct + 3f);
+                yield return new WaitForSeconds(3f);
+                foreach (var d in ItemDrop.s_instances.ToArray())
+                    if (d && d.name.StartsWith("Coal") && Vector3.Distance(d.transform.position, charAt) < 6f) { coalAfter++; if (d.m_nview && d.m_nview.IsValid()) ZNetScene.instance.Destroy(d.gameObject); }
+                Check("charcoal kiln made coal from the piece it was given, and ran dry", coalAfter > coalBefore && charcoal.GetInt(ZDOVars.s_queued) == 0,
+                    $"coal {coalBefore} -> {coalAfter}, queued {charcoal.GetInt(ZDOVars.s_queued)}");
+                // the server runs it here; in play it's a player's game, whose update brings it back
+                Arrive(charcoal, Package(charcoal));
+                yield return new WaitForSeconds(0.5f);
+                Check("run dry, it's given another piece as its update comes in", charcoal.GetInt(ZDOVars.s_queued) == 1 && charcoal.GetString(ZDOVars.s_item0) == "Wood",
+                    $"queued {charcoal.GetInt(ZDOVars.s_queued)}");
+            }
+            Plugin.CharcoalKiln.Value = false; Keeper.SettingsChanged();
+            yield return Round();
+            charcoal.Set(ZDOVars.s_queued, 0);
+            Arrive(charcoal, Package(charcoal));
+            yield return new WaitForSeconds(0.5f);
+            Check("CharcoalKiln off again: no longer fed", !Keeper.IsLit(charcoal) && !Keeper.IsLit(full) && charcoal.GetInt(ZDOVars.s_queued) == 0, $"queued {charcoal.GetInt(ZDOVars.s_queued)}");
+
+            // 5d3. limits: raised on built furnaces and kilns, the world's own left alone, the coal limit
+            // left to the fuel switch while that's on, the game's own back at 0
+            var capSmelter = Make("smelter", at + new Vector3(56f, 0f, 0f), built: true);
+            var capBlast = Make("blastfurnace", at + new Vector3(60f, 0f, 0f), built: true);
+            var capKiln = Make("charcoal_kiln", at + new Vector3(64f, 0f, 0f), built: true);
+            var capFrost = Make("piece_FrostKiln", at + new Vector3(68f, 0f, 0f), built: true);
+            var wildSmelter = Make("smelter", at + new Vector3(72f, 0f, 0f), built: false);
+            foreach (var z in new[] { capSmelter, capBlast, capKiln, capFrost, wildSmelter }) Arrive(z, Package(z));
+            yield return new WaitForSeconds(0.5f);
+            Check("limits at the game's own (default): nothing written", capSmelter.GetInt("Smelter.m_maxOre", -1) == -1 && capKiln.GetInt("Smelter.m_maxOre", -1) == -1 && capFrost.GetInt("Smelter.m_maxFuel", -1) == -1, "");
+            Plugin.Smelters.Value = false;
+            Plugin.SmelterMaxOre.Value = 30; Plugin.SmelterMaxCoal.Value = 50; Plugin.BlastFurnaceMaxOre.Value = 40; Plugin.BlastFurnaceMaxCoal.Value = 60;
+            Plugin.CharcoalKilnMaxWood.Value = 75; Plugin.FrostKilnMaxIce.Value = 100;
+            Keeper.SettingsChanged();
+            yield return Round();
+            string Lim(ZDO z) => $"ore {z.GetInt("Smelter.m_maxOre", -1)}, fuel {z.GetInt("Smelter.m_maxFuel", -1)}";
+            Check("limits raised: smelter 30 ore / 50 coal, blast furnace 40 / 60", capSmelter.GetInt("Smelter.m_maxOre", -1) == 30 && capSmelter.GetInt("Smelter.m_maxFuel", -1) == 50
+                && capBlast.GetInt("Smelter.m_maxOre", -1) == 40 && capBlast.GetInt("Smelter.m_maxFuel", -1) == 60, $"{Lim(capSmelter)} / {Lim(capBlast)}");
+            Check("limits raised: charcoal kiln 75 wood, frost kiln 100 ice (and still takes nothing else)", capKiln.GetInt("Smelter.m_maxOre", -1) == 75 && capKiln.GetInt("Smelter.m_maxFuel", -1) == -1
+                && capFrost.GetInt("Smelter.m_maxFuel", -1) == 100 && capFrost.GetInt("Smelter.m_maxOre", -1) == -1, $"{Lim(capKiln)} / {Lim(capFrost)}");
+            Check("limits: the world's own smelter left alone", wildSmelter.GetInt("Smelter.m_maxOre", -1) == -1, Lim(wildSmelter));
+            Plugin.Smelters.Value = true; Keeper.SettingsChanged();
+            yield return Round();
+            Check("Smelters on: coal limit gives way to no coal, ore limit stays", Keeper.IsLit(capSmelter) && capSmelter.GetInt("Smelter.m_maxFuel", -1) == 0 && capSmelter.GetInt("Smelter.m_maxOre", -1) == 30, Lim(capSmelter));
+            Plugin.Smelters.Value = false; Keeper.SettingsChanged();
+            yield return Round();
+            Check("Smelters off again: back to the raised coal limit", !Keeper.IsLit(capSmelter) && capSmelter.GetInt("Smelter.m_maxFuel", -1) == 50, Lim(capSmelter));
+            var capAt = near + new Vector3(12f, 0f, -8f);
+            capAt.y = ZoneSystem.instance.GetGroundHeight(capAt);
+            capKiln.SetPosition(capAt);
+            Smelter fc2 = null;
+            for (int i = 0; i < 30 && (fc2 = LiveSmelter(capKiln)) == null; i++) yield return new WaitForSeconds(0.5f);
+            Check("charcoal kiln loaded in the server's game takes 75", fc2 != null && fc2.m_maxOre == 75, fc2 == null ? "not loaded" : $"maxOre {fc2.m_maxOre}; {Loaded(capKiln, "Smelter.m_maxOre")}");
+            if (fc2 != null)
+            {
+                for (int i = 0; i < 40; i++) fc2.QueueOre("Wood", false);
+                Check("it holds more than the game's own 25", fc2.GetQueueSize() == 40, $"queued {fc2.GetQueueSize()}");
+            }
+            Plugin.SmelterMaxOre.Value = 10; Plugin.SmelterMaxCoal.Value = 20; Plugin.BlastFurnaceMaxOre.Value = 10; Plugin.BlastFurnaceMaxCoal.Value = 20;
+            Plugin.CharcoalKilnMaxWood.Value = 25; Plugin.FrostKilnMaxIce.Value = 25;
+            Keeper.SettingsChanged();
+            yield return Round();
+            Check("limits back to the defaults: the game's own set again (10/20, 10/20, 25 wood, 25 ice)", capSmelter.GetInt("Smelter.m_maxOre", -1) == 10 && capSmelter.GetInt("Smelter.m_maxFuel", -1) == 20
+                && capBlast.GetInt("Smelter.m_maxOre", -1) == 10 && capBlast.GetInt("Smelter.m_maxFuel", -1) == 20 && capKiln.GetInt("Smelter.m_maxOre", -1) == 25 && capFrost.GetInt("Smelter.m_maxFuel", -1) == 25,
+                $"{Lim(capSmelter)} / {Lim(capBlast)} / {Lim(capKiln)} / {Lim(capFrost)}");
+
             // 5e. shield generators (off by default): on, a hit uses up no fuel
             string shieldName = ZNetScene.instance.m_prefabs.First(p => p && p.GetComponent<ShieldGenerator>() is ShieldGenerator sg && sg.m_fuelItems.Count > 0).name;   // not the charred ones
             float shieldNormal = ZNetScene.instance.GetPrefab(shieldName).GetComponent<ShieldGenerator>().m_fuelPerDamage;
@@ -320,7 +460,7 @@ namespace Everlit
             lamp.SetPosition(lampAt);
             Fireplace fl = null;
             for (int i = 0; i < 30 && (fl = Live(lamp)) == null; i++) yield return new WaitForSeconds(0.5f);
-            Check("loaded in the server's game: no smoke check, can be turned off", fl != null && fl.m_disableCoverCheck && fl.m_canTurnOff && fl.m_infiniteFuel,
+            Check("loaded in the server's game: no smoke check, can be turned off", fl != null && fl.m_disableCoverCheck && fl.m_canTurnOff && (fl.m_infiniteFuel || fl.m_secPerFuel >= 1e29f),
                 fl == null ? "not loaded" : $"cover off {fl.m_disableCoverCheck}, can turn off {fl.m_canTurnOff}");
             lamp.Set(ZDOVars.s_state, 2);                // as a player turning it off
             Plugin.NoSmokeChoke.Value = false; Plugin.PlayersCanTurnOff.Value = false; Keeper.SettingsChanged();
@@ -373,7 +513,7 @@ namespace Everlit
             Plugin.PlayerBuiltOnly.Value = true; Plugin.Enabled.Value = false; Keeper.SettingsChanged();
             yield return Round();
             bool allBack = true;
-            foreach (var z in made) allBack &= !Keeper.IsLit(z) && !z.GetBool("Fireplace.m_infiniteFuel");
+            foreach (var z in made) allBack &= !Keeper.IsLit(z) && !z.GetBool("Fireplace.m_infiniteFuel") && z.GetFloat("Fireplace.m_secPerFuel") < 1e29f && !z.GetString("Fireplace.m_name").Contains("never runs out");
             Check("Enabled off: every fire put back to normal", allBack, $"{Fields(torch)} / {Fields(camp)}");
             int smelterMax = ZNetScene.instance.GetPrefab("smelter").GetComponent<Smelter>().m_maxFuel;
             Check("Enabled off: hot tub needs wood again", tub.GetInt("Smelter.m_maxFuel", -1) == tubMax, $"maxFuel {tub.GetInt("Smelter.m_maxFuel", -1)}");
@@ -387,9 +527,45 @@ namespace Everlit
             yield return new WaitForSeconds(3f);
             torch.SetPosition(near + new Vector3(-4f, 0f, 0f));
             for (int i = 0; i < 30 && (ft = Live(torch)) == null; i++) yield return new WaitForSeconds(0.5f);
-            Check("put-back torch runs without infinite fuel when it loads again", ft != null && !ft.m_infiniteFuel, ft == null ? "not loaded" : "");
+            Check("put-back torch runs as normal when it loads again (no infinite fuel, its own burn rate and name)", ft != null && !ft.m_infiniteFuel && ft.m_secPerFuel == torchSec && ft.m_name == torchLabel,
+                ft == null ? "not loaded" : $"infinite {ft.m_infiniteFuel}, secPerFuel {ft.m_secPerFuel}, name {ft.m_name}");
 
             Check("rounds stay light (slowest frame under 5 ms, every round)", slowest < 5.0, $"{slowest:F2} ms");
+        }
+
+        // What the settings' descriptions say about the game's own pieces, checked against this
+        // version of the game: a game update that changes one shows up here.
+        private static void GameFacts()
+        {
+            Smelter S(string n) => ZNetScene.instance.GetPrefab(n)?.GetComponent<Smelter>();
+            CookingStation C(string n) => ZNetScene.instance.GetPrefab(n)?.GetComponent<CookingStation>();
+            string Fuel(ItemDrop i) => i ? i.gameObject.name : "none";
+            foreach (var go in ZNetScene.instance.m_prefabs)
+            {
+                if (!go) continue;
+                if (go.GetComponent<Smelter>() is Smelter s)
+                    ZLog.Log($"Everlit TEST fact: {go.name}: smelter, fuel {Fuel(s.m_fuelItem)} max {s.m_maxFuel} per product {s.m_fuelPerProduct}, maxOre {s.m_maxOre}, {s.m_secPerProduct} s each, stack {s.m_spawnStack}, " +
+                        string.Join(" ", s.m_conversion.Select(c => $"{(c.m_from ? c.m_from.gameObject.name : "nothing")}->{(c.m_to ? c.m_to.gameObject.name : "?")}")));
+                else if (go.GetComponent<CookingStation>() is CookingStation c && c.m_useFuel)
+                    ZLog.Log($"Everlit TEST fact: {go.name}: oven, fuel {Fuel(c.m_fuelItem)} max {c.m_maxFuel}, {c.m_secPerFuel} s per piece");
+                else if (go.GetComponent<Fireplace>() is Fireplace f && !f.m_infiniteFuel && f.m_secPerFuel > 0f && f.m_fuelItem)
+                    ZLog.Log($"Everlit TEST fact: {go.name}: fire, fuel {Fuel(f.m_fuelItem)} max {f.m_maxFuel}, {f.m_secPerFuel} s per piece, wet check {(f.m_enabledObjectLow && f.m_enabledObjectHigh)}, coverOff {f.m_disableCoverCheck}, canTurnOff {f.m_canTurnOff}");
+                else if (go.GetComponent<ShieldGenerator>() is ShieldGenerator g)
+                    ZLog.Log($"Everlit TEST fact: {go.name}: shield, fuel {string.Join("/", g.m_fuelItems.Select(Fuel))} max {g.m_maxFuel}, per damage {g.m_fuelPerDamage}, attack {g.m_enableAttack} after {g.m_attackChargeTime} s");
+            }
+            var tub = S("piece_bathtub"); var kiln = S("piece_FrostKiln"); var charcoal = S("charcoal_kiln");
+            Check("fact: hot tub burns wood, takes nothing in, makes nothing", tub && Fuel(tub.m_fuelItem) == "Wood" && tub.m_maxOre == 0 && tub.m_conversion.Count == 0, "");
+            Check("fact: smelter and blast furnace burn coal", Fuel(S("smelter")?.m_fuelItem) == "Coal" && Fuel(S("blastfurnace")?.m_fuelItem) == "Coal", "");
+            Check("fact: eitr refinery burns sap", Fuel(S("eitrrefinery")?.m_fuelItem) == "Sap", "");
+            Check("fact: frost kiln burns ice, takes nothing else, makes one piece every 30 s, unstacked", kiln && Fuel(kiln.m_fuelItem) == "Ice" && kiln.m_maxOre == 0
+                && kiln.m_conversion.Count == 1 && kiln.m_conversion[0].m_from == null && kiln.m_secPerProduct == 30f && !kiln.m_spawnStack,
+                kiln ? $"fuel {Fuel(kiln.m_fuelItem)}, maxOre {kiln.m_maxOre}, {kiln.m_secPerProduct} s, stack {kiln.m_spawnStack}" : "missing");
+            Check("fact: charcoal kiln, spinning wheel, windmill burn no fuel", charcoal && charcoal.m_maxFuel == 0 && S("piece_spinningwheel")?.m_maxFuel == 0 && S("windmill")?.m_maxFuel == 0, "");
+            Check("fact: the limits' defaults are the game's own (kiln 25 wood, frost kiln 25 ice, smelter and blast furnace 10 ore / 20 coal)",
+                charcoal && charcoal.m_maxOre == (int)Plugin.CharcoalKilnMaxWood.DefaultValue && kiln && kiln.m_maxFuel == (int)Plugin.FrostKilnMaxIce.DefaultValue
+                && S("smelter")?.m_maxOre == (int)Plugin.SmelterMaxOre.DefaultValue && S("smelter")?.m_maxFuel == (int)Plugin.SmelterMaxCoal.DefaultValue
+                && S("blastfurnace")?.m_maxOre == (int)Plugin.BlastFurnaceMaxOre.DefaultValue && S("blastfurnace")?.m_maxFuel == (int)Plugin.BlastFurnaceMaxCoal.DefaultValue, "");
+            Check("fact: stone oven burns wood, frost foundry frozen fuel", Fuel(C("piece_oven")?.m_fuelItem) == "Wood" && Fuel(C("piece_FrostFoundry")?.m_fuelItem) == "FrozenFuel", "");
         }
 
         private static double slowest;
@@ -407,7 +583,7 @@ namespace Everlit
             ZLog.Log($"Everlit TEST {(ok ? "PASS" : "FAIL")} {what}{(detail.Length > 0 ? " | " + detail : "")}");
         }
 
-        private static string Fields(ZDO z) => $"lit {Keeper.IsLit(z)}, infinite {z.GetBool("Fireplace.m_infiniteFuel")}, HasFields {z.GetBool("HasFields")}";
+        private static string Fields(ZDO z) => $"lit {Keeper.IsLit(z)}, infinite {z.GetBool("Fireplace.m_infiniteFuel")}, secPerFuel {z.GetFloat("Fireplace.m_secPerFuel", -1f)}, name {z.GetString("Fireplace.m_name")}, HasFields {z.GetBool("HasFields")}";
 
         private static ZDO Make(string prefab, Vector3 pos, bool built)
         {
@@ -419,6 +595,24 @@ namespace Everlit
             if (built) zdo.Set(ZDOVars.s_creator, 1234567L);
             made.Add(zdo);
             return zdo;
+        }
+
+        // what a loaded object got: the data on it, and whether the game applied it (and how often)
+        private static readonly Dictionary<ZDOID, int> loads = new Dictionary<ZDOID, int>();
+        [HarmonyPatch(typeof(ZNetView), nameof(ZNetView.LoadFields))]
+        private static class Loads
+        {
+            private static void Postfix(ZNetView __instance)
+            {
+                var z = __instance.GetZDO();
+                if (z != null && made.Contains(z)) loads[z.m_uid] = loads.TryGetValue(z.m_uid, out int n) ? n + 1 : 1;
+            }
+        }
+        private static string Loaded(ZDO z, string field)
+        {
+            var v = ZNetScene.instance.FindInstance(z);
+            return $"zdo HasFields {z.GetBool("HasFields")}, HasFields{field.Split('.')[0]} {z.GetBool("HasFields" + field.Split('.')[0])}, {field} int {z.GetInt(field, -1)}; " +
+                $"instance {(v ? v.name : "none")}, same zdo {(v && v.GetZDO() == z)}, loaded {(loads.TryGetValue(z.m_uid, out int n) ? n : 0)}x, owner {z.GetOwner()}, me {ZDOMan.GetSessionID()}";
         }
 
         private static Fireplace Live(ZDO z)

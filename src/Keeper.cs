@@ -11,17 +11,20 @@ namespace Everlit
     // per object in the object's data ("HasFields", "HasFields<Component>", "<Component>.<field>"), and
     // every player's game applies them when it loads the object (ZNetView.LoadFields). So the fire
     // never burns fuel, in every player's game, with nothing installed on theirs.
+    // With HoverInfo on (the default) a fire gets a burn rate so slow its fuel lasts for good instead,
+    // and a note after its name: the game shows no hover text at all on an infinite-fuel fire.
     // Fires are found as players' games send them (just built), and by a walk of the whole world at
     // the start, a slice each frame; nothing sweeps after that.
     // A fire is written to once, when it's lit (or put back), and never again after that.
     // A fire a player already has loaded switches when it next loads for them; until then it gets a
     // full load of fuel so it doesn't go out in the meantime.
-    // Furnaces (off by default) and hot tubs get the same treatment through the smelter's own "max fuel"
+    // Smelters and blast furnaces (off by default) and hot tubs get the same treatment through the smelter's own "max fuel"
     // (to the game a hot tub is a smelter with nothing to smelt, burning wood to stay on): at 0 the game
     // runs it without fuel, as it does the spinning wheel. They get no fuel top-up: torn down, they drop
     // the coal or wood in them, so a top-up would be free fuel.
     // The eitr refinery (on) and the frost kiln (off) go the same way. Off by default, the frost kiln
-    // then makes its goods out of nothing, for as long as it's loaded.
+    // then makes its goods out of nothing, for as long as it's loaded. The charcoal kiln (off) has no
+    // fuel to switch off; it's kept going with a piece of wood whenever it runs empty (see Kiln).
     // Ovens and the frost foundry (off) have no such switch and only cook with fuel in them, so a piece of wood is made to last for
     // good (the oven's own "seconds per fuel" at its highest), and an empty one gets just under one
     // piece: torn down, an oven drops whole pieces only, so that isn't free wood either.
@@ -35,8 +38,8 @@ namespace Everlit
     // it's switched on, then as players' games send them; one changing re-runs a round of known fires.
     internal static class Keeper
     {
-        private enum Kind { Campfire, Bonfire, Hearth, Torch, Brazier, Candle, HotTub, Oven, Refinery, Furnace, FrostKiln, FrostFoundry, Shield, Other }
-        private enum Via { Fireplace, Smelter, CookingStation, ShieldGenerator }   // the component whose fields are switched
+        private enum Kind { Campfire, Bonfire, Hearth, Torch, Brazier, Candle, HotTub, Oven, Refinery, Smelter, BlastFurnace, FrostKiln, CharcoalKiln, FrostFoundry, Shield, Other }
+        private enum Via { Fireplace, Smelter, CookingStation, ShieldGenerator, Queue }   // the component whose fields are switched (Queue: none, wood put in)
 
         private sealed class FireType
         {
@@ -46,6 +49,10 @@ namespace Everlit
             public Via Via;
             public float Normal;   // the prefab's own value of the smelter's, oven's or shield's switched field, to put it back
             public bool CoverOff, CanTurnOff;   // the fire's own smoke and turning-off switches
+            public string Feed;                 // what's put in a charcoal kiln
+            public int NormalOre, NormalFuel;   // the prefab's own limits, for stations whose limits can be raised
+            public float SecPerFuel;            // a fire's own burn rate and name, to put them back
+            public string Label;
         }
 
         private static readonly int HasFields = "HasFields".GetStableHashCode();
@@ -53,12 +60,16 @@ namespace Everlit
         private static readonly int InfiniteFuel = (nameof(Fireplace) + "." + nameof(Fireplace.m_infiniteFuel)).GetStableHashCode();
         private static readonly int HasFieldsSmelter = ("HasFields" + nameof(Smelter)).GetStableHashCode();
         private static readonly int SmelterMaxFuel = (nameof(Smelter) + "." + nameof(Smelter.m_maxFuel)).GetStableHashCode();
+        private static readonly int SmelterMaxOre = (nameof(Smelter) + "." + nameof(Smelter.m_maxOre)).GetStableHashCode();
         private static readonly int HasFieldsCooking = ("HasFields" + nameof(CookingStation)).GetStableHashCode();
         private static readonly int CookingSecPerFuel = (nameof(CookingStation) + "." + nameof(CookingStation.m_secPerFuel)).GetStableHashCode();
         private static readonly int HasFieldsShield = ("HasFields" + nameof(ShieldGenerator)).GetStableHashCode();
         private static readonly int ShieldFuelPerDamage = (nameof(ShieldGenerator) + "." + nameof(ShieldGenerator.m_fuelPerDamage)).GetStableHashCode();
         private static readonly int CoverCheck = (nameof(Fireplace) + "." + nameof(Fireplace.m_disableCoverCheck)).GetStableHashCode();
         private static readonly int TurnOff = (nameof(Fireplace) + "." + nameof(Fireplace.m_canTurnOff)).GetStableHashCode();
+        private static readonly int FireSecPerFuel = (nameof(Fireplace) + "." + nameof(Fireplace.m_secPerFuel)).GetStableHashCode();
+        private static readonly int FireName = (nameof(Fireplace) + "." + nameof(Fireplace.m_name)).GetStableHashCode();
+        private const float SLOW = 1e30f;               // a fire's seconds per piece of wood with HoverInfo on: one piece lasts for good
         private const int FOREVER = int.MaxValue;       // an oven's seconds per piece of wood: about 68 years
         private const float OVEN_FUEL = 0.99f;          // what an empty oven gets: under one piece, so tearing it down drops none
         private static readonly int Mark = "everlit".GetStableHashCode();   // fires Everlit lit, so it can put them back
@@ -70,6 +81,7 @@ namespace Everlit
 
         private static Dictionary<int, FireType> types;     // every fire that burns fuel
         private static HashSet<int> wanted;                 // the ones the settings keep lit
+        private static Dictionary<int, (int Ore, int Fuel)> caps;   // limits other than the game's own (0: the game's own)
         private static readonly HashSet<ZDOID> arrived = new HashSet<ZDOID>();
         private static readonly List<ZDOID> work = new List<ZDOID>();
         private static readonly Dictionary<ZDOID, float> fuelSeen = new Dictionary<ZDOID, float>();   // lit fires' fuel when last seen
@@ -78,11 +90,12 @@ namespace Everlit
         private static readonly List<ZDOID> roundList = new List<ZDOID>();
         private static float nextRound, nextReport;
         private static bool running, wholeWorld, forceWorld, firstRound = true;
-        private static int liveLit;
+        private static int liveLit, liveFed;
+        private static bool fed;                            // the last Look only put wood in a kiln
         private static int sector, index, slowestFrame, gcs;
         private static bool slowestGc;
         private static bool again;                          // settings changed during a round: one more after it
-        private static int rLit, rUnlit, rKept, rWorld, rBurning, rSwitched;
+        private static int rLit, rUnlit, rKept, rWorld, rBurning, rSwitched, rFed, rCap;
         private static readonly Dictionary<Kind, int> rKinds = new Dictionary<Kind, int>();
         private static readonly System.Diagnostics.Stopwatch clock = new System.Diagnostics.Stopwatch();
         private static double roundMs, slowestMs;
@@ -155,7 +168,11 @@ namespace Everlit
             if (arrived.Count > 0)
             {
                 work.Clear(); work.AddRange(arrived); arrived.Clear();
-                foreach (var id in work) if (Look(ZDOMan.instance.GetZDO(id), true)) liveLit++;
+                foreach (var id in work)
+                {
+                    fed = false;
+                    if (Look(ZDOMan.instance.GetZDO(id), true)) { if (fed) liveFed++; else liveLit++; }
+                }
             }
             if (Time.time >= nextReport) Report();
             if (!running && Time.time >= nextRound) StartRound();
@@ -183,17 +200,29 @@ namespace Everlit
                 var s = go.GetComponent<Smelter>();
                 if (s != null)
                 {
-                    if (s.m_maxFuel <= 0 || s.m_fuelItem == null) continue;   // needs nothing (spinning wheel, windmill, kiln)
+                    // the charcoal kiln burns no fuel: the wood is what it turns into coal, and that the
+                    // game has no switch for. Kept going by putting a piece in whenever it runs empty
+                    if (s.m_maxFuel <= 0 && s.m_maxOre > 0 && s.m_conversion.Count > 0
+                        && s.m_conversion.All(c => c.m_from != null && c.m_to != null && c.m_to.gameObject.name == "Coal"))
+                    {
+                        var feed = s.m_conversion.FirstOrDefault(c => c.m_from.gameObject.name == "Wood") ?? s.m_conversion[0];
+                        types[go.name.GetStableHashCode()] = new FireType { Name = go.name, Kind = Kind.CharcoalKiln, Via = Via.Queue, Feed = feed.m_from.gameObject.name, NormalOre = s.m_maxOre };
+                        continue;
+                    }
+                    if (s.m_maxFuel <= 0 || s.m_fuelItem == null) continue;   // needs nothing (spinning wheel, windmill)
                     string fuel = s.m_fuelItem.gameObject.name;
                     // hot tubs burn fuel just to be on: nothing goes in or comes out. The frost kiln also
                     // takes nothing in, but makes something out of its fuel alone: without fuel that's free
                     Kind? kind = s.m_maxOre == 0 && s.m_conversion.Count == 0 ? Kind.HotTub
-                        : fuel == "Coal" ? Kind.Furnace                 // smelters, blast furnaces, modded ones
+                        : fuel == "Coal" ? (go.name == "blastfurnace" ? Kind.BlastFurnace : Kind.Smelter)   // modded ones go with smelters
                         : fuel == "Sap" ? Kind.Refinery                 // the eitr refinery
                         : go.name == "piece_FrostKiln" ? Kind.FrostKiln
                         : (Kind?)null;
                     if (kind.HasValue)
-                        types[go.name.GetStableHashCode()] = new FireType { Name = go.name, Kind = kind.Value, Normal = s.m_maxFuel, Via = Via.Smelter };
+                        types[go.name.GetStableHashCode()] = new FireType { Name = go.name, Kind = kind.Value, Normal = s.m_maxFuel, Via = Via.Smelter,
+                            // the furnaces' ore and coal and the frost kiln's ice can be raised (it takes nothing else in)
+                            NormalOre = kind == Kind.Smelter || kind == Kind.BlastFurnace ? s.m_maxOre : 0,
+                            NormalFuel = kind == Kind.Smelter || kind == Kind.BlastFurnace || kind == Kind.FrostKiln ? s.m_maxFuel : 0 };
                     continue;
                 }
                 var c = go.GetComponent<CookingStation>();
@@ -213,7 +242,7 @@ namespace Everlit
                 // already infinite (traders' fire pits) or doesn't burn anything: nothing to do
                 if (f == null || f.m_infiniteFuel || f.m_secPerFuel <= 0f || f.m_fuelItem == null) continue;
                 types[go.name.GetStableHashCode()] = new FireType { Name = go.name, Kind = KindOf(go.name), MaxFuel = f.m_maxFuel,
-                    CoverOff = f.m_disableCoverCheck, CanTurnOff = f.m_canTurnOff };
+                    CoverOff = f.m_disableCoverCheck, CanTurnOff = f.m_canTurnOff, SecPerFuel = f.m_secPerFuel, Label = f.m_name };
             }
             ZLog.Log($"Everlit: {types.Count} kinds of fire and furnace: " + string.Join(", ", types.Values.OrderBy(t => t.Kind).Select(t => $"{t.Name} ({t.Kind})"))
                 + $"; {wardTypes.Count} kinds of ward");
@@ -242,10 +271,20 @@ namespace Everlit
             if (!warded) { wards.Clear(); wardArrived.Clear(); wardsKnown = wardRound = false; }
             var exclude = new HashSet<string>(Plugin.ExcludeFires.Value.Split(',').Select(s => s.Trim().ToLowerInvariant()).Where(s => s.Length > 0));
             wanted = new HashSet<int>();
+            caps = new Dictionary<int, (int, int)>();
             if (!Plugin.Enabled.Value) return;
             foreach (var kv in types)
             {
                 if (exclude.Contains(kv.Value.Name.ToLowerInvariant())) continue;
+                var cap = kv.Value.Kind == Kind.Smelter ? (Plugin.SmelterMaxOre.Value, Plugin.SmelterMaxCoal.Value)
+                    : kv.Value.Kind == Kind.BlastFurnace ? (Plugin.BlastFurnaceMaxOre.Value, Plugin.BlastFurnaceMaxCoal.Value)
+                    : kv.Value.Kind == Kind.CharcoalKiln ? (Plugin.CharcoalKilnMaxWood.Value, 0)
+                    : kv.Value.Kind == Kind.FrostKiln ? (0, Plugin.FrostKilnMaxIce.Value)
+                    : (0, 0);
+                // a limit the same as the game's own needs nothing written
+                if (cap.Item1 == kv.Value.NormalOre) cap.Item1 = 0;
+                if (cap.Item2 == kv.Value.NormalFuel) cap.Item2 = 0;
+                if (cap.Item1 > 0 || cap.Item2 > 0) caps[kv.Key] = cap;
                 bool on;
                 switch (kv.Value.Kind)
                 {
@@ -259,8 +298,10 @@ namespace Everlit
                     case Kind.Oven: on = Plugin.Ovens.Value; break;
                     case Kind.Refinery: on = Plugin.EitrRefinery.Value; break;
                     case Kind.FrostKiln: on = Plugin.FrostKiln.Value; break;
+                    case Kind.CharcoalKiln: on = Plugin.CharcoalKiln.Value; break;
                     case Kind.FrostFoundry: on = Plugin.FrostFoundry.Value; break;
-                    case Kind.Furnace: on = Plugin.Furnaces.Value; break;
+                    case Kind.Smelter: on = Plugin.Smelters.Value; break;
+                    case Kind.BlastFurnace: on = Plugin.BlastFurnaces.Value; break;
                     case Kind.Shield: on = Plugin.ShieldGenerators.Value; break;
                     default: on = Plugin.OtherFires.Value; break;
                 }
@@ -269,7 +310,7 @@ namespace Everlit
         }
 
         public static bool IsLit(ZDO zdo) => zdo.GetInt(Mark) == 1
-            && (zdo.GetBool(InfiniteFuel) || zdo.GetInt(SmelterMaxFuel, -1) == 0 || zdo.GetInt(CookingSecPerFuel) == FOREVER
+            && ((types != null && types.TryGetValue(zdo.GetPrefab(), out var t) && t.Via == Via.Queue) || zdo.GetBool(InfiniteFuel) || zdo.GetFloat(FireSecPerFuel) >= SLOW || zdo.GetInt(SmelterMaxFuel, -1) == 0 || zdo.GetInt(CookingSecPerFuel) == FOREVER
                 || zdo.GetFloat(ShieldFuelPerDamage, -1f) == 0f);
 
         // returns true when it changed the fire
@@ -285,8 +326,42 @@ namespace Everlit
             known.Add(zdo.m_uid);
             if (warded && !wardsKnown) return false;     // the wards first; the round after the walk sees to it
             bool built = zdo.GetLong(ZDOVars.s_creator) != 0L;
-            bool want = wanted.Contains(prefab) && (built || !Plugin.PlayerBuiltOnly.Value) && (!warded || InWard(zdo.GetPosition()));
+            bool wantFuel = wanted.Contains(prefab), wantCap = caps.ContainsKey(prefab);
+            bool inScope = (wantFuel || wantCap) && (built || !Plugin.PlayerBuiltOnly.Value) && (!warded || InWard(zdo.GetPosition()));
+            bool want = wantFuel && inScope;
             bool marked = zdo.GetInt(Mark) == 1;
+            bool changed = type.Via == Via.Queue ? Kiln(zdo, type, want, marked, live) : Fuel(zdo, type, want, marked, built, live);
+            if (type.NormalOre > 0 || type.NormalFuel > 0) changed |= Capacity(zdo, type, wantCap && inScope ? caps[prefab] : (0, 0), want);
+            return changed;
+        }
+
+        // A station's limits (how much ore, wood, coal or ice goes in): what the settings say for one in
+        // scope, the prefab's own otherwise. Its fuel limit is left to the fuel switch while that's on.
+        private static bool Capacity(ZDO zdo, FireType type, (int Ore, int Fuel) cap, bool fuelSwitched)
+        {
+            bool changed = false;
+            if (type.NormalOre > 0) changed |= Limit(zdo, SmelterMaxOre, cap.Ore > 0 ? cap.Ore : type.NormalOre, type.NormalOre);
+            if (type.NormalFuel > 0 && !fuelSwitched) changed |= Limit(zdo, SmelterMaxFuel, cap.Fuel > 0 ? cap.Fuel : type.NormalFuel, type.NormalFuel);
+            if (!changed) return false;
+            Win(zdo);
+            rCap++;
+            if (Plugin.LogEachFire.Value) ZLog.Log($"Everlit: {type.Name} at {Where(zdo)} limits now {(type.NormalOre > 0 ? zdo.GetInt(SmelterMaxOre, type.NormalOre) + " in" : "")}{(type.NormalFuel > 0 && !fuelSwitched ? " " + zdo.GetInt(SmelterMaxFuel, type.NormalFuel) + " fuel" : "")}");
+            return true;
+        }
+
+        private static bool Limit(ZDO zdo, int key, int value, int normal)
+        {
+            if (zdo.GetInt(key, normal) == value) return false;
+            // set back to the prefab's own rather than removed: a player's copy keeps a value it isn't sent again
+            zdo.Set(HasFields, true);
+            zdo.Set(HasFieldsSmelter, true);
+            zdo.Set(key, value);
+            return true;
+        }
+
+        // the fuel switch: switched on, put back, or kept as it is
+        private static bool Fuel(ZDO zdo, FireType type, bool want, bool marked, bool built, bool live)
+        {
             if (want && !IsLit(zdo))
             {
                 zdo.Set(HasFields, true);
@@ -309,10 +384,10 @@ namespace Everlit
                 }
                 else
                 {
+                    // the switch itself (infinite fuel, or with HoverInfo a piece of wood that lasts for
+                    // good) is set by Switches below. The player's game that runs this fire right now only
+                    // picks it up when it next loads it; a full load keeps it burning until then
                     zdo.Set(HasFieldsFireplace, true);
-                    zdo.Set(InfiniteFuel, true);
-                    // the player's game that runs this fire right now only picks the switch up when it
-                    // next loads it; a full load keeps it burning until then
                     zdo.Set(ZDOVars.s_fuel, type.MaxFuel);
                 }
                 Switches(zdo, type, true);
@@ -357,12 +432,62 @@ namespace Everlit
             return false;
         }
 
-        // A fire's own smoke-check and turning-off switches: what the settings say while it's lit, the
-        // fire's own when it's put back. Returns true when it changed one.
+        // A charcoal kiln (CharcoalKiln, off by default): one piece of wood put in whenever it's empty. The
+        // player's game running it sends it on after each piece of coal, so it's seen here as it runs
+        // dry. Only one at a time: torn down, a kiln drops what's in it, so that's all the free wood
+        // there is. Switched off, it's just no longer fed; the piece in it turns into coal as normal.
+        private static bool Kiln(ZDO zdo, FireType type, bool want, bool marked, bool live)
+        {
+            if (want)
+            {
+                bool changed = false;
+                if (!marked)
+                {
+                    zdo.Set(Mark, 1);
+                    rLit++;
+                    if (Plugin.LogEachFire.Value) ZLog.Log($"Everlit: kept {type.Name} at {Where(zdo)} going{(live ? " (just built)" : "")}");
+                    changed = true;
+                }
+                if (zdo.GetInt(ZDOVars.s_queued) == 0)
+                {
+                    zdo.Set(ZDOVars.s_item0, type.Feed);
+                    zdo.Set(ZDOVars.s_queued, 1);
+                    rFed++;
+                    fed = !changed;
+                    changed = true;
+                }
+                rKinds[type.Kind] = rKinds.TryGetValue(type.Kind, out var k) ? k + 1 : 1;
+                if (changed) Win(zdo); else rKept++;
+                return changed;
+            }
+            if (!marked) return false;
+            zdo.RemoveInt(Mark);
+            Win(zdo);
+            rUnlit++;
+            if (Plugin.LogEachFire.Value) ZLog.Log($"Everlit: stopped feeding {type.Name} at {Where(zdo)}");
+            return true;
+        }
+
+        // A fire's switches: how it's kept lit, its name, and its own smoke-check and turning-off
+        // switches: what the settings say while it's lit, the fire's own when it's put back. Returns
+        // true when it changed one.
+        // How it's kept lit: the game's infinite fuel shows no hover text at all on the fire, so with
+        // HoverInfo on (the default) it burns its wood so slowly instead that a full load lasts for good,
+        // and the game shows the fire as usual, full (adding wood says so), with a note after its name.
+        // Kept full: a fire drops no wood when torn down, so that's no free wood.
         private static bool Switches(ZDO zdo, FireType type, bool lit)
         {
             if (type.Via != Via.Fireplace) return false;
             bool changed = false;
+            bool hover = lit && Plugin.HoverInfo.Value;
+            bool infinite = lit && !hover;
+            if (zdo.GetBool(InfiniteFuel) != infinite) { zdo.Set(InfiniteFuel, infinite); changed = true; }
+            float sec = hover ? SLOW : type.SecPerFuel;
+            if (zdo.GetFloat(FireSecPerFuel, type.SecPerFuel) != sec) { zdo.Set(FireSecPerFuel, sec); changed = true; }
+            string note = Plugin.HoverNote.Value.Trim();
+            string name = hover && note.Length > 0 ? type.Label + " " + note : type.Label;
+            if (zdo.GetString(FireName, type.Label) != name) { zdo.Set(FireName, name); changed = true; }
+            if (hover && zdo.GetFloat(ZDOVars.s_fuel) < type.MaxFuel - 1f) { zdo.Set(ZDOVars.s_fuel, type.MaxFuel); changed = true; }
             bool coverOff = (lit && Plugin.NoSmokeChoke.Value) || type.CoverOff;
             if (zdo.GetBool(CoverCheck, type.CoverOff) != coverOff) { zdo.Set(CoverCheck, coverOff); changed = true; }
             bool canTurnOff = (lit && Plugin.PlayersCanTurnOff.Value) || type.CanTurnOff;
@@ -414,7 +539,7 @@ namespace Everlit
             sector = 0; index = 0;
             roundList.Clear();
             if (!wholeWorld) roundList.AddRange(known);
-            rLit = rUnlit = rKept = rWorld = rBurning = rSwitched = 0; rKinds.Clear();
+            rLit = rUnlit = rKept = rWorld = rBurning = rSwitched = rFed = rCap = 0; rKinds.Clear();
             roundMs = slowestMs = 0; roundFrames = slowestFrame = 0; slowestGc = false;
         }
 
@@ -464,10 +589,10 @@ namespace Everlit
                 ZLog.Log($"Everlit: WardedOnly: {wards.Count} wards found, {wards.Values.Count(w => w.On)} switched on; walk took {roundMs:F1} ms over {roundFrames} frames");
                 return;
             }
-            if (firstRound || rLit > 0 || rUnlit > 0 || rBurning > 0 || rSwitched > 0)
+            if (firstRound || rLit > 0 || rUnlit > 0 || rBurning > 0 || rSwitched > 0 || rCap > 0)
             {
                 string kinds = rKinds.Count == 0 ? "" : " (" + string.Join(", ", rKinds.OrderBy(k => k.Key).Select(k => $"{k.Value} {KindName(k.Key)}")) + ")";
-                ZLog.Log($"Everlit: {rKept + rLit} fires kept lit{kinds}; {rLit} newly lit, {rUnlit} put back to normal, " + (rSwitched > 0 ? $"{rSwitched} lit fires' switches changed, " : "") +
+                ZLog.Log($"Everlit: {rKept + rLit} fires kept lit{kinds}; {rLit} newly lit, {rUnlit} put back to normal, " + (rSwitched > 0 ? $"{rSwitched} lit fires' switches changed, " : "") + (rFed > 0 ? $"{rFed} charcoal kilns given a piece of wood, " : "") + (rCap > 0 ? $"{rCap} stations' limits changed, " : "") +
                     (rBurning > 0 ? $"{rBurning} still using fuel in a player's game (until it next loads there), " : "") +
                     $"{rWorld} of the world's own left alone; {(wholeWorld ? "whole world" : "known fires")} took {roundMs:F1} ms over {roundFrames} frames, slowest frame {slowestMs:F2} ms (#{slowestFrame}{(slowestGc ? ", a garbage collection ran in it" : "")})");
             }
@@ -478,10 +603,10 @@ namespace Everlit
         private static void Report()
         {
             nextReport = Time.time + REPORT_MINUTES * 60f;
-            if (liveLit > 0 || stillBurning.Count > 0)
-                ZLog.Log($"Everlit: last {REPORT_MINUTES:F0} min: {liveLit} fires lit as they were built" +
+            if (liveLit > 0 || liveFed > 0 || stillBurning.Count > 0)
+                ZLog.Log($"Everlit: last {REPORT_MINUTES:F0} min: {liveLit} fires lit as they were built" + (liveFed > 0 ? $", {liveFed} pieces of wood put in charcoal kilns" : "") +
                     (stillBurning.Count > 0 ? $", {stillBurning.Count} lit fires still used fuel in a player's game (they stop once it next loads there)" : ""));
-            liveLit = 0;
+            liveLit = liveFed = 0;
             stillBurning.Clear();
         }
 
@@ -516,7 +641,9 @@ namespace Everlit
             {
                 case Kind.HotTub: return "hot tub";
                 case Kind.Refinery: return "eitr refinery";
+                case Kind.BlastFurnace: return "blast furnace";
                 case Kind.FrostKiln: return "frost kiln";
+                case Kind.CharcoalKiln: return "charcoal kiln";
                 case Kind.FrostFoundry: return "frost foundry";
                 case Kind.Shield: return "shield generator";
                 default: return k.ToString().ToLowerInvariant();

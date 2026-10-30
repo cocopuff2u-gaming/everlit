@@ -1,8 +1,8 @@
 {
     "name": "Everlit",
-    "version_number": "1.1.1",
+    "version_number": "1.2.0",
     "website_url": "https://github.com/cocopuff2u-gaming/everlit",
-    "description": "Fires, torches, hot tubs, ovens and the eitr refinery players build never run out of fuel. Optional: furnaces, frost stations, shield generators. Server only.",
+    "description": "Fires, torches, hot tubs, ovens and the eitr refinery players build never run out of fuel, and say so on hover. Optional: furnaces, charcoal and frost kilns, frost foundry, shield generators, bigger kilns and furnaces. Server only.",
     "dependencies": [
         "denikson-BepInExPack_Valheim-5.4.2350"
     ]

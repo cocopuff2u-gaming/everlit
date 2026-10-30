@@ -24,9 +24,10 @@ Your players don't install anything. It runs only on the server.
 | **Only player-built fires** | The world's own fire pits, at abandoned camps and villages, stay dark the way the game made them. Switch `PlayerBuiltOnly` off if you want those lit too. |
 | **Pick which fires** | Switches for campfires, bonfires, hearths, torches, braziers and candles, and a list for single fire types to leave alone. |
 | **Hot tubs, ovens and the eitr refinery too** | Hot tubs stay hot, stone ovens keep cooking and the eitr refinery refines, without anyone feeding them wood or sap. Each has its own switch. |
-| **Furnaces and frost stations, if you want** | Off by default. Switch `Furnaces` on and smelters and blast furnaces smelt without coal, using the game's own "needs no fuel" setting that the spinning wheel and windmill run on. `FrostKiln` and `FrostFoundry` do the same for the Deep North's frost stations. |
+| **Furnaces and frost stations, if you want** | Off by default. Switch `Smelters` or `BlastFurnaces` on and those smelt without coal, using the game's own "needs no fuel" setting that the spinning wheel and windmill run on. `FrostKiln` and `FrostFoundry` do the same for the Deep North's frost stations, and `CharcoalKiln` keeps charcoal kilns making coal. |
 | **New fires too** | A fire is switched over as soon as it's built. |
-| **The game's own feature** | Valheim already has fires that never run out (the traders' fire pits). Everlit switches that same feature on for your players' fires, using a per-object setting every player's game applies by itself. Nothing is faked, and no fuel is added over and over. |
+| **The game's own settings** | Everlit only changes settings the game already has on each fire, saved on the fire itself, and every player's game applies them by itself. By default a fire's wood burns so slowly that a full load lasts for good, so players still see it the usual way: its name, a "(never runs out)" note and its fuel, always full. Switch `HoverInfo` off and fires use the game's own "infinite fuel" instead (the traders' fire pits run on it), which shows no text at all when looked at. |
+| **Bigger kilns and furnaces** | Raise how much wood, ice, ore or coal the charcoal kiln, frost kiln, smelters and blast furnaces take. All start at the game's own numbers. |
 | **More if you want it** | All off by default: only inside players' wards, shield generators that never run down, fires that don't choke on smoke indoors, and fires players can turn off. |
 | **Easy to undo** | Turn `Enabled` off and every fire Everlit lit goes back to burning fuel. |
 | **Light on your server** | One walk of the world a minute after it loads, spread out so no frame does more than a millisecond or two of work. After that Everlit only reacts to fires as players build them; it doesn't sweep the world again. (`WardedOnly` adds one more walk when it's switched on, to find the wards.) |
@@ -52,7 +53,7 @@ Most server hosts have a one-click option for BepInEx.
 4. **Start the server.** In the server log you should see:
 
    ```
-   Everlit 1.1.1 loaded
+   Everlit 1.2.0 loaded
    ```
 
    and, a minute after the world loads:
@@ -91,14 +92,36 @@ you save, and says `Settings reloaded` in the log.
 | `HotTubs` | `true` | hot tubs burn wood | Hot tubs stay hot without wood. Wood already in one stays there; no more can be added while it's on. |
 | `Ovens` | `true` | ovens burn wood | Stone ovens never run out of wood. An empty one is given just under one piece, so it can cook; tearing it down drops none. |
 | `EitrRefinery` | `true` | the refinery burns sap | The eitr refinery refines without sap. Sap already in one stays there; no more can be added while it's on. |
-| `Furnaces` | `false` | furnaces burn coal | Smelters and blast furnaces (and modded furnaces that burn coal) smelt without coal. Coal already in one stays there; no more can be added while it's on. |
+| `Smelters` | `false` | smelters burn coal | Smelters (and modded furnaces that burn coal) smelt without coal. Coal already in one stays there; no more can be added while it's on. |
+| `BlastFurnaces` | `false` | blast furnaces burn coal | Blast furnaces smelt without coal. Coal already in one stays there; no more can be added while it's on. |
 | `FrostKiln` | `false` | the kiln turns ice into frozen fuel | The frost kiln runs without ice. It takes nothing else in, so it makes frozen fuel out of nothing: a piece every 30 seconds, dropped on the ground, while a player is near it, and up to an hour's worth (120 pieces) at once when someone comes back. |
+| `CharcoalKiln` | `false` | the kiln turns wood into coal | Charcoal kilns make coal without anyone putting wood in: a piece every 15 seconds while a player is near one. The game has no "no fuel" switch for this (the wood isn't fuel, it's what becomes the coal), so Everlit puts **one piece of wood** in a kiln each time it runs empty. That's the only setting that adds something to an object over and over; tearing a kiln down drops the one piece in it. |
 | `FrostFoundry` | `false` | the foundry burns frozen fuel | The frost foundry never runs out of frozen fuel. An empty one is given just under one piece; tearing it down drops none. |
-| `ShieldGenerators` | `false` | a hit uses up fuel | Shield generators use up no fuel when their shield is hit, so it never breaks. It still needs fuel put in once to come on, and its size still goes by how much is in it. |
+| `ShieldGenerators` | `false` | a hit uses up fuel | Shield generators use up no fuel when their shield is hit, so it never breaks. It still needs fuel put in once to come on, its size still goes by how much is in it, and setting off its charged blast still empties it, as normal. |
 | `NoSmokeChoke` | `false` | fires go out when smoke can't get away | Lit fires don't go out under a roof with nowhere for the smoke to go, with something solid right above them, or partly buried. The smoke still fills the room and still hurts. |
-| `PlayersCanTurnOff` | `false` | | Players can turn lit fires off and on by using them (there's no on-screen prompt: the game shows none on a fire that never runs out). The game's own rule for such fires: rain, or strong wind with little cover, turns one off, and it stays off until someone lights it again. Switching this off lights any fire left turned off. |
-| `ExcludeFires` | (empty) | | Fire types to leave alone, by prefab name, comma separated, e.g. `piece_walltorch, bonfire` (hot tub: `piece_bathtub`, oven: `piece_oven`, eitr refinery: `eitrrefinery`, furnaces: `smelter`, `blastfurnace`, frost kiln: `piece_FrostKiln`, frost foundry: `piece_FrostFoundry`, shield generator: `piece_shieldgenerator`). Wins over the switches. |
+| `HoverInfo` | `true` | | Lit fires show the game's usual text when looked at: their name with `HoverNote` after it, and their fuel, always full (adding more says it's full). Off: they show nothing, as the game does for a fire with infinite fuel. Asked for in [#2](https://github.com/cocopuff2u-gaming/everlit/issues/2). |
+| `HoverNote` | `(never runs out)` | | What follows a lit fire's name with `HoverInfo` on. The same text for every player, whatever their game's language; color tags like `<color=orange>...</color>` work. Empty: just the name. |
+| `PlayersCanTurnOff` | `false` | | Players can turn lit fires off and on by using them (there's no on-screen prompt for it: with `HoverInfo` on, a fire shows its usual add-fuel prompt; off, it shows nothing). The game's own rule for such fires: rain with no roof over it, or strong wind with little cover, turns one off, and it stays off until someone lights it again. Switching this off lights any fire left turned off. |
+| `ExcludeFires` | (empty) | | Fire types to leave alone, by prefab name, comma separated, e.g. `piece_walltorch, bonfire` (hot tub: `piece_bathtub`, oven: `piece_oven`, eitr refinery: `eitrrefinery`, smelter: `smelter`, blast furnace: `blastfurnace`, frost kiln: `piece_FrostKiln`, charcoal kiln: `charcoal_kiln`, frost foundry: `piece_FrostFoundry`, shield generator: `piece_shieldgenerator`). Wins over the switches. |
 | `LogEachFire` | `false` | | A log line for every fire lit or put back: what it is and where. |
+
+**Capacity.** How much goes into a kiln or furnace. Each one starts at the game's own
+number, so nothing changes until you raise it. They follow `PlayerBuiltOnly`,
+`WardedOnly` and `ExcludeFires` like the switches above. Set one back to the game's
+number and the stations go back to it.
+
+| Setting | Everlit default (= vanilla) | Range | What it does |
+|---|---|---|---|
+| `CharcoalKilnMaxWood` | `25` | 1-100 | How much wood a charcoal kiln takes. |
+| `FrostKilnMaxIce` | `25` | 1-500 | How much ice a frost kiln takes. No effect while `FrostKiln` is on (it then takes none). |
+| `SmelterMaxOre` | `10` | 1-100 | How much ore a smelter takes. |
+| `SmelterMaxCoal` | `20` | 1-500 | How much coal a smelter takes. No effect while `Smelters` is on. |
+| `BlastFurnaceMaxOre` | `10` | 1-100 | How much ore a blast furnace takes. |
+| `BlastFurnaceMaxCoal` | `20` | 1-500 | How much coal a blast furnace takes. No effect while `BlastFurnaces` is on. |
+
+Like the switches, a new limit reaches a station a player has loaded right now the next
+time it loads for them. Lowering a limit leaves anything already in a station where it
+is; nothing more goes in until it's under the new limit.
 
 A blank means the game has nothing like it.
 
@@ -118,18 +141,22 @@ A blank means the game has nothing like it.
   on). Those don't use fuel.
 * **Smoke itself** can't be switched off from the server: it's made only in each
   player's own game.
-* **Adding fuel.** A lit fire won't take wood or resin any more, the same as the
-  traders' fire pits, and a switched hot tub, furnace or eitr refinery says it's
-  full. Ovens and the frost foundry still take fuel, though they don't need it.
+* **Adding fuel.** A lit fire is always full, so adding wood or resin says it's
+  full (with `HoverInfo` off it isn't offered at all, as on the traders' fire pits),
+  and a switched hot tub, furnace or eitr refinery says it's full too. Ovens and the frost foundry still take fuel, though they don't need it.
 * **Hot tubs, ovens and stations** use the same kind of switch as the fires, saved
   on each one. The hover text still shows the fuel in them over a maximum of 0
   (a hot tub with three pieces of wood in it reads `Wood 3/0`).
 * **No free fuel.** Nothing is topped up with fuel a player could get back: tearing
-  one down gives back only what players put in. The one exception is `FrostKiln`,
-  which makes frozen fuel out of nothing when it's on.
+  one down gives back only what players put in. The exceptions are `FrostKiln`,
+  which makes frozen fuel out of nothing when it's on, and `CharcoalKiln`, which
+  puts a piece of wood in an empty charcoal kiln (torn down, it drops that piece).
 * **The charcoal kiln, spinning wheel and windmills** burn no fuel: the wood, flax
-  or barley put in them is what they turn into coal, linen thread or flour. Smelters
-  and blast furnaces are only touched with `Furnaces` on, the frost kiln and frost
+  or barley put in them is what they turn into coal, linen thread or flour. So the
+  charcoal kiln can't be switched like the others; `CharcoalKiln` feeds it one piece
+  of wood at a time instead, written each time it runs empty. A kiln a player
+  already filled is left as it is until it's empty. Smelters
+  and blast furnaces are only touched with `Smelters` or `BlastFurnaces` on, the frost kiln and frost
   foundry only with their own switches on.
 * **The shield generator** is only touched with `ShieldGenerators` on: without using
   up fuel, its shield never breaks.
